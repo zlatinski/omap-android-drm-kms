@@ -25,7 +25,7 @@
 #include <linux/types.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
-#include <linux/platform_data/omap_drm.h>
+#include <plat/drm.h>
 #include "omap_drm.h"
 
 #define DBG(fmt, ...) DRM_DEBUG(fmt"\n", ##__VA_ARGS__)
