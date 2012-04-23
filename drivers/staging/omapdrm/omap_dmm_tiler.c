@@ -194,7 +194,7 @@ static struct dmm_txn *dmm_txn_init(struct dmm *dmm, struct tcm *tcm)
  * corresponding slot is cleared (ie. dummy_pa is programmed)
  */
 static int dmm_txn_append(struct dmm_txn *txn, struct pat_area *area,
-		struct mem_info *mem, uint32_t npages, uint32_t roll,
+		struct page **pages, uint32_t npages, uint32_t roll,
 		uint32_t y_offset)
 {
 	dma_addr_t pat_pa = 0;
@@ -323,7 +323,7 @@ static int fill(struct tcm_area *area, struct mem_info *mem, uint32_t npages,
 				.x1 = slice.p1.x, .y1 = slice.p1.y,
 		};
 
-		ret = dmm_txn_append(txn, &p_area, mem, npages, roll,
+		ret = dmm_txn_append(txn, &p_area, pages, npages, roll,
 					y_offset);
 		if (ret)
 			goto fail;
@@ -999,6 +999,9 @@ static int omap_dmm_probe(struct platform_device *dev)
 	else
 		containers[TILFMT_PAGE] = omap_dmm->tcm[0];
 
+	INIT_LIST_HEAD(&omap_dmm->alloc_head);
+	spin_lock_init(&omap_dmm->list_lock);
+
 	area = (struct tcm_area) {
 		.is2d = true,
 		.tcm = omap_dmm->tcm[0],
@@ -1156,7 +1159,7 @@ int tiler_map_show(struct seq_file *s, void *arg)
 			map[i] = global_map + i * (w_adj + 1);
 			map[i][w_adj] = 0;
 		}
-		spin_lock_irqsave(&list_lock, flags);
+		spin_lock_irqsave(&omap_dmm->list_lock, flags);
 
 		list_for_each_entry(block, &omap_dmm->alloc_head, alloc_node) {
 			if (block->area.tcm->lut_id == lut_idx) {
@@ -1190,7 +1193,7 @@ int tiler_map_show(struct seq_file *s, void *arg)
 			}
 		}
 
-		spin_unlock_irqrestore(&list_lock, flags);
+		spin_unlock_irqrestore(&omap_dmm->list_lock, flags);
 
 		if (s) {
 			seq_printf(s, "CONTAINER %d DUMP BEGIN\n", lut_idx);
