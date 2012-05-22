@@ -199,6 +199,5 @@ struct mem_info {
 		struct page **pages;
 		uint32_t *phys_addrs;
 	};
-};
 
 #endif
