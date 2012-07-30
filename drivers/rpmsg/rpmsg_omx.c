@@ -45,8 +45,16 @@
 extern struct ion_device *omap_ion_device;
 #endif
 
+#if defined(CONFIG_DMA_SHARED_BUFFER)
+#include <linux/dma-buf.h>
+#endif
+
 /* maximum OMX devices this driver can handle */
 #define MAX_OMX_DEVICES		8
+
+enum rpc_omx_fxn_idx_type {
+	RPC_OMX_FXN_IDX_FREE_BUFFER = 13,
+};
 
 enum rpc_omx_map_info_type {
 	RPC_OMX_MAP_INFO_NONE          = 0,
@@ -82,7 +90,18 @@ struct rpmsg_omx_instance {
 #ifdef CONFIG_ION_OMAP
 	struct ion_client *ion_client;
 #endif
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	struct idr dma_idr;
+#endif
 };
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+struct rpmsg_omx_dma_info {
+	struct dma_buf *dbuf;
+	struct dma_buf_attachment *attach;
+	struct sg_table *sgt;
+};
+#endif
 
 static struct class *rpmsg_omx_class;
 static dev_t rpmsg_omx_dev;
@@ -91,7 +110,6 @@ static dev_t rpmsg_omx_dev;
 static DEFINE_IDR(rpmsg_omx_services);
 static DEFINE_SPINLOCK(rpmsg_omx_services_lock);
 
-#ifdef CONFIG_ION_OMAP
 static int _rpmsg_pa_to_da(struct rpmsg_omx_instance *omx, u32 pa, u32 *da)
 {
 	int ret = 0;
@@ -116,15 +134,123 @@ static int _rpmsg_pa_to_da(struct rpmsg_omx_instance *omx, u32 pa, u32 *da)
 
 	return ret;
 }
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+/*
+ * Proudly inspired by the OMAP RPC code (omaprpc_dmabuf.c) by Hervé Fache
+ */
+static phys_addr_t rpmsg_omx_pin_buffer(struct rpmsg_omx_instance *omx, int fd)
+{
+	struct rpmsg_omx_service *omxserv = omx->omxserv;
+	struct rpmsg_omx_dma_info *dma = kmalloc(sizeof *dma, GFP_KERNEL);
+	int id;
+	int ret;
+
+	if (!dma)
+		return 0;
+
+	dma->dbuf = dma_buf_get(fd);
+	dev_dbg(omxserv->dev, "pining with fd=%u/dbuf=%p\n", fd, dma->dbuf);
+	if (IS_ERR(dma->dbuf))
+		goto err;
+
+	dma->attach = dma_buf_attach(dma->dbuf, omxserv->dev);
+	if (IS_ERR(dma->attach))
+		goto err_buf_put;
+
+	dma->sgt = dma_buf_map_attachment(dma->attach, DMA_BIDIRECTIONAL);
+	if (IS_ERR(dma->sgt))
+		goto err_detach;
+
+	if (!idr_pre_get(&omx->dma_idr, GFP_KERNEL))
+		goto err_unmap;
+
+	mutex_lock(&omx->lock);
+	ret = idr_get_new_above(&omx->dma_idr, dma, fd, &id);
+	mutex_unlock(&omx->lock);
+	if (ret)
+		goto err_detach;
+
+	if (fd != id)
+		goto err_rem_idr;
+
+	return sg_dma_address(dma->sgt->sgl);
+
+err_rem_idr:
+	mutex_lock(&omx->lock);
+	idr_remove(&omx->dma_idr, id);
+	mutex_unlock(&omx->lock);
+err_unmap:
+	dma_buf_unmap_attachment(dma->attach, dma->sgt, DMA_BIDIRECTIONAL);
+err_detach:
+	dma_buf_detach(dma->dbuf, dma->attach);
+err_buf_put:
+	dma_buf_put(dma->dbuf);
+err:
+	kfree(dma);
+	return 0;
+}
+
+static int rpmsg_omx_unpin_buffer(struct rpmsg_omx_instance *omx,
+				struct rpmsg_omx_dma_info *dma)
+{
+	struct device *dev = omx->omxserv->dev;
+
+	dev_dbg(dev, "unpining with dbuf=%p\n", dma->dbuf);
+
+	dma_buf_unmap_attachment(dma->attach, dma->sgt, DMA_BIDIRECTIONAL);
+	dma_buf_detach(dma->dbuf, dma->attach);
+	dma_buf_put(dma->dbuf);
+	kfree(dma);
+
+	return 0;
+}
+
+static struct rpmsg_omx_dma_info *
+rpmsg_omx_dma_find(struct rpmsg_omx_instance *omx, int fd, phys_addr_t *pa)
+{
+	struct device *dev = omx->omxserv->dev;
+	struct rpmsg_omx_dma_info *dma;
+	struct dma_buf *dbuf = dma_buf_get(fd);
+
+	dev_dbg(dev, "looking for fd=%u/dbuf=%p\n", fd, dbuf);
+
+	mutex_lock(&omx->lock);
+	dma = idr_find(&omx->dma_idr, fd);
+	mutex_unlock(&omx->lock);
+	if (dma)
+		*pa = sg_dma_address(dma->sgt->sgl);
+
+	return dma;
+}
 #endif
 
-static int _rpmsg_omx_buffer_lookup(struct rpmsg_omx_instance *omx,
-					long buffer, u32 *va)
+/*
+ * This takes a buffer or map and return one or two 'device addresses' (wrongly
+ * called va and va2, should be called da and da2), meaning the address that the
+ * device considers 'physical', but is in fact mapped by the IOMMU (remoteproc
+ * takes care of that.)
+ */
+static int _rpmsg_omx_buffer_get(struct rpmsg_omx_instance *omx,
+					long buffer, phys_addr_t *da)
 {
 	int ret = -EIO;
 
-	*va = 0;
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	{
+		int fd = buffer;
+		phys_addr_t pa;
+		struct rpmsg_omx_dma_info *dma;
 
+		/* find the base of the dam buf from the list */
+		dma = rpmsg_omx_dma_find(omx, fd, &pa);
+		/* wasn't in the list, convert the pointer */
+		if (!dma)
+			pa = rpmsg_omx_pin_buffer(omx, fd);
+
+		ret = _rpmsg_pa_to_da(omx, pa, da);
+	}
+#endif
 #ifdef CONFIG_ION_OMAP
 	{
 		struct ion_handle *handle;
@@ -133,7 +259,7 @@ static int _rpmsg_omx_buffer_lookup(struct rpmsg_omx_instance *omx,
 
 		handle = (struct ion_handle *)buffer;
 		if (!ion_phys(omx->ion_client, handle, &paddr, &unused)) {
-			ret = _rpmsg_pa_to_da(omx, (phys_addr_t)paddr, va);
+			ret = _rpmsg_pa_to_da(omx, (phys_addr_t)paddr, da);
 			goto exit;
 		}
 	}
@@ -146,55 +272,79 @@ exit:
 	return ret;
 }
 
-static int _rpmsg_omx_map_buf(struct rpmsg_omx_instance *omx, char *packet)
+static int _rpmsg_omx_buffer_put(struct rpmsg_omx_instance *omx, long buffer)
 {
-	int ret = -EINVAL, offset = 0;
-	long *buffer;
-	char *data;
-	enum rpc_omx_map_info_type maptype;
-	u32 da = 0;
+	int ret = -EIO;
 
-	data = (char *)((struct omx_packet *)packet)->data;
-	maptype = *((enum rpc_omx_map_info_type *)data);
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	{
+		int fd = buffer;
+		phys_addr_t pa;
+		struct rpmsg_omx_dma_info *dma;
 
-	/* Nothing to map */
-	if (maptype == RPC_OMX_MAP_INFO_NONE)
-		return 0;
-
-	if ((maptype < RPC_OMX_MAP_INFO_ONE_BUF) ||
-			(maptype > RPC_OMX_MAP_INFO_THREE_BUF))
-		return ret;
-
-	offset = *(int *)((int)data + sizeof(maptype));
-	buffer = (long *)((int)data + offset);
-
-	/* Lookup for the da of 1st buffer */
-	ret = _rpmsg_omx_buffer_lookup(omx, *buffer, &da);
-	if (!ret)
-		*buffer = da;
-
-	/* If 2 buffers, get the 2nd buffers da */
-	if (!ret && (maptype >= RPC_OMX_MAP_INFO_TWO_BUF)) {
-		buffer = (long *)((int)data + offset + sizeof(*buffer));
-		if (*buffer != 0) {
-			/* Lookup the da for 2nd buffer */
-			ret = _rpmsg_omx_buffer_lookup(omx, *buffer, &da);
-			if (!ret)
-				*buffer = da;
+		dma = rpmsg_omx_dma_find(omx, fd, &pa);
+		if (dma) {
+			mutex_lock(&omx->lock);
+			idr_remove(&omx->dma_idr, fd);
+			mutex_unlock(&omx->lock);
+			ret = rpmsg_omx_unpin_buffer(omx, dma);
 		}
 	}
-
-	/* Get the da for the 3rd buffer if maptype is ..THREE_BUF */
-	if (!ret && maptype >= RPC_OMX_MAP_INFO_THREE_BUF) {
-		buffer = (long *)((int)data + offset + 2*sizeof(*buffer));
-		if (*buffer != 0) {
-			ret = _rpmsg_omx_buffer_lookup(omx, *buffer, &da);
-			if (!ret)
-				*buffer = da;
-		}
-	}
-
+#endif
 	return ret;
+}
+
+static int
+_rpmsg_omx_map_buf(struct rpmsg_omx_instance *omx, struct omx_packet *packet)
+{
+	void *data = packet->data;
+	enum rpc_omx_map_info_type maptype =
+					*(enum rpc_omx_map_info_type *)data;
+	int offset = *(int *)(data + sizeof(maptype));
+	u32 *buffer = (u32 *)(data + offset);
+
+	/*
+	 * maptype has the good idea to count for 0 = none to 3 = three buffers
+	 */
+	if (maptype < RPC_OMX_MAP_INFO_NONE ||
+					maptype > RPC_OMX_MAP_INFO_THREE_BUF)
+		return -EINVAL;
+
+	while (maptype--) {
+		/* Replace given data by device address in message */
+		int ret = _rpmsg_omx_buffer_get(omx, *buffer, buffer);
+		if (ret)
+			return ret;
+		++buffer;
+	}
+
+	return 0;
+}
+
+static int _rpmsg_omx_unmap_buf(struct rpmsg_omx_instance *omx,
+				struct omx_packet *packet)
+{
+	void *data = packet->data;
+	enum rpc_omx_map_info_type maptype =
+					*(enum rpc_omx_map_info_type *)data;
+	int offset = *(int *)(data + sizeof(maptype));
+	u32 *buffer = (u32 *)(data + offset);
+
+	/*
+	 * maptype has the good idea to count for 0 = none to 3 = three buffers
+	 */
+	if (maptype < RPC_OMX_MAP_INFO_NONE ||
+					maptype > RPC_OMX_MAP_INFO_THREE_BUF)
+		return -EINVAL;
+
+	while (maptype--) {
+		int ret = _rpmsg_omx_buffer_put(omx, *buffer);
+		if (ret)
+			return ret;
+		++buffer;
+	}
+
+	return 0;
 }
 
 static void rpmsg_omx_cb(struct rpmsg_channel *rpdev, void *data, int len,
@@ -488,6 +638,9 @@ static int rpmsg_omx_open(struct inode *inode, struct file *filp)
 					    (1 << OMAP_ION_HEAP_TYPE_TILER),
 					    "rpmsg-omx");
 #endif
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	idr_init(&omx->dma_idr);
+#endif
 
 	init_completion(&omx->reply_arrived);
 
@@ -501,6 +654,13 @@ err:
 	kfree(omx);
 	return ret;
 }
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+int rpmsg_omx_idr_unpin_buffer(int id, void *node, void *omx)
+{
+	return rpmsg_omx_unpin_buffer(omx, node);
+}
+#endif
 
 static int rpmsg_omx_release(struct inode *inode, struct file *filp)
 {
@@ -542,6 +702,11 @@ static int rpmsg_omx_release(struct inode *inode, struct file *filp)
 
 #ifdef CONFIG_ION_OMAP
 	ion_client_destroy(omx->ion_client);
+#endif
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	idr_for_each(&omx->dma_idr, rpmsg_omx_idr_unpin_buffer, omx);
+	idr_remove_all(&omx->dma_idr);
+	idr_destroy(&omx->dma_idr);
 #endif
 	mutex_lock(&omxserv->lock);
 	list_del(&omx->next);
@@ -613,6 +778,7 @@ static ssize_t rpmsg_omx_write(struct file *filp, const char __user *ubuf,
 	struct rpmsg_omx_service *omxserv = omx->omxserv;
 	char kbuf[512];
 	struct omx_msg_hdr *hdr = (struct omx_msg_hdr *) kbuf;
+	struct omx_packet *packet;
 	int use, ret;
 
 	if (omx->state == OMX_UNCONNECTED)
@@ -631,7 +797,11 @@ static ssize_t rpmsg_omx_write(struct file *filp, const char __user *ubuf,
 	if (copy_from_user(hdr->data, ubuf, use))
 		return -EFAULT;
 
-	ret = _rpmsg_omx_map_buf(omx, hdr->data);
+	packet = (struct omx_packet *) hdr->data;
+	if (packet->fxn_idx == (RPC_OMX_FXN_IDX_FREE_BUFFER | 0x80000000))
+		ret = _rpmsg_omx_unmap_buf(omx, packet);
+	else
+		ret = _rpmsg_omx_map_buf(omx, packet);
 	if (ret < 0)
 		return ret;
 
