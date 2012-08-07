@@ -66,8 +66,25 @@ void i915_gem_unmap_dma_buf(struct dma_buf_attachment *attachment,
 void i915_gem_dmabuf_release(struct dma_buf *dma_buf)
 {
 	struct drm_i915_gem_object *obj = dma_buf->priv;
+	struct drm_device *dev = obj->base.dev;
 
-	drm_gem_object_unreference_unlocked(&obj->base);
+	mutex_lock(&dev->struct_mutex);
+
+	if (obj->base.export_dma_buf == dma_buf) {
+		obj->base.export_dma_buf = NULL;
+	} else {
+		drm_i915_private_t *dev_priv = dev->dev_private;
+		struct intel_ring_buffer *ring;
+		int i;
+
+		for_each_ring(ring, dev_priv, i)
+			WARN_ON(ring->sync_buf == dma_buf);
+	}
+
+	/* drop the reference on the export fd holds */
+	drm_gem_object_unreference(&obj->base);
+
+	mutex_unlock(&dev->struct_mutex);
 }
 
 static void *i915_gem_dmabuf_vmap(struct dma_buf *dma_buf)

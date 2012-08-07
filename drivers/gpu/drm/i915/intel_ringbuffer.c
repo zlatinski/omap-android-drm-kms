@@ -33,6 +33,7 @@
 #include "i915_drm.h"
 #include "i915_trace.h"
 #include "intel_drv.h"
+#include <linux/dma-buf.h>
 
 /*
  * 965+ support PIPE_CONTROL commands, which provide finer grained control
@@ -350,6 +351,22 @@ init_pipe_control(struct intel_ring_buffer *ring)
 	if (pc->cpu_page == NULL)
 		goto err_unpin;
 
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	if (IS_GEN5(ring->dev)) {
+		struct dma_buf *dmabuf;
+		dmabuf = i915_gem_prime_export(ring->dev, &obj->base, 0);
+		if (IS_ERR(dmabuf)) {
+			ret = PTR_ERR(dmabuf);
+			kunmap(obj->pages[0]);
+			pc->cpu_page = NULL;
+			goto err_unpin;
+		}
+		drm_gem_object_reference(&obj->base);
+		ring->sync_buf = dmabuf;
+		ring->sync_seqno_ofs = 0;
+	}
+#endif
+
 	pc->obj = obj;
 	ring->private = pc;
 	return 0;
@@ -386,6 +403,8 @@ static int init_render_ring(struct intel_ring_buffer *ring)
 	struct drm_device *dev = ring->dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int ret = init_ring_common(ring);
+	if (ret)
+		return ret;
 
 	if (INTEL_INFO(dev)->gen > 3) {
 		int mode = VS_TIMER_DISPATCH << 16 | VS_TIMER_DISPATCH;
@@ -944,6 +963,14 @@ static void cleanup_status_page(struct intel_ring_buffer *ring)
 	if (obj == NULL)
 		return;
 
+	if (ring->sync_buf) {
+		struct dma_buf *dmabuf;
+
+		dmabuf = ring->sync_buf;
+		ring->sync_buf = NULL;
+		dma_buf_put(dmabuf);
+	}
+
 	kunmap(obj->pages[0]);
 	i915_gem_object_unpin(obj);
 	drm_gem_object_unreference(&obj->base);
@@ -979,6 +1006,21 @@ static int init_status_page(struct intel_ring_buffer *ring)
 		memset(&dev_priv->hws_map, 0, sizeof(dev_priv->hws_map));
 		goto err_unpin;
 	}
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+	if (!IS_GEN5(ring->dev) || ring->init == init_ring_common) {
+		struct dma_buf *dmabuf;
+		dmabuf = i915_gem_prime_export(dev, &obj->base, 0);
+		if (IS_ERR(dmabuf)) {
+			ret = PTR_ERR(dmabuf);
+			kunmap(obj->pages[0]);
+			goto err_unpin;
+		}
+		drm_gem_object_reference(&obj->base);
+		ring->sync_buf = dmabuf;
+		ring->sync_seqno_ofs = I915_GEM_HWS_INDEX * 4;
+	}
+#endif
 	ring->status_page.obj = obj;
 	memset(ring->status_page.page_addr, 0, PAGE_SIZE);
 

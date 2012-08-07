@@ -120,6 +120,9 @@ struct  intel_ring_buffer {
 	wait_queue_head_t irq_queue;
 	drm_local_map_t map;
 
+	struct dma_buf *sync_buf;
+	u32 sync_seqno_ofs;
+
 	void *private;
 };
 
