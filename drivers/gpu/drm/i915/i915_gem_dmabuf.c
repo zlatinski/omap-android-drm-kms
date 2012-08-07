@@ -123,21 +123,25 @@ static void i915_gem_dmabuf_vunmap(struct dma_buf *dma_buf, void *vaddr)
 
 static void *i915_gem_dmabuf_kmap_atomic(struct dma_buf *dma_buf, unsigned long page_num)
 {
-	return NULL;
+	struct drm_i915_gem_object *obj = dma_buf->priv;
+	return kmap_atomic(obj->pages[page_num]);
 }
 
 static void i915_gem_dmabuf_kunmap_atomic(struct dma_buf *dma_buf, unsigned long page_num, void *addr)
 {
-
+	kunmap_atomic(addr);
 }
+
 static void *i915_gem_dmabuf_kmap(struct dma_buf *dma_buf, unsigned long page_num)
 {
-	return NULL;
+	struct drm_i915_gem_object *obj = dma_buf->priv;
+	return kmap(obj->pages[page_num]);
 }
 
 static void i915_gem_dmabuf_kunmap(struct dma_buf *dma_buf, unsigned long page_num, void *addr)
 {
-
+	struct drm_i915_gem_object *obj = dma_buf->priv;
+	kunmap(obj->pages[page_num]);
 }
 
 struct dma_buf_ops i915_dmabuf_ops =  {
