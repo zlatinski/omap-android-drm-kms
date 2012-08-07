@@ -1,0 +1,72 @@
+                    DMA Buffer Synchronization API Guide
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+                            Maarten Lankhorst
+                    <maarten.lankhorst@canonical.com>
+                        <m.b.lankhorst@gmail.com>
+
+This is a followup to dma-buf-sharing.txt, which should be read first.
+Unless you're dealing with the most simplest of cases, you're going to need
+synchronization. This is done with the help of dma-fence and dma-buf-mgr.
+
+
+dma-fence
+---------
+
+dma-fence is simply a synchronization primitive used mostly by dma-buf-mgr.
+In general, driver writers would not need to implement their own kind of
+dma-fence, but re-use the existing types. The possibility is left open for
+platforms which support alternate means of hardware synchronization between
+IP blocks to provide their own implementation shared by the drivers on that
+platform.
+
+The base dma-fence is sufficient for software based signaling. Ie. when the
+signaling driver gets an irq, calls dma_fence_signal() which wakes other
+driver(s) that are waiting for the fence to be signaled.
+
+But to support cases where no CPU involvement is required in the buffer
+handoff between two devices, different fence implementations can be used. By
+comparing the ops pointer with known ops, it is possible to see if the fence
+you are waiting on works in a special way known to your driver, and act
+differently based upon that. For example dma_seqno_fence allows hardware
+waiting until the condition is met:
+
+    (s32)((sync_buf)[seqno_ofs] - seqno) >= 0
+
+But all dma-fences should have a software fallback, for the driver creating
+the fence does not know if the driver waiting on the fence supports hardware
+signaling.  The enable_signaling() callback is to notify the fence
+implementation (or possibly the creator of the fence) that some other driver
+is waiting for software notification and dma_fence_signal() must be called
+once the fence is passed.  This could be used to enable some irq that would
+not normally be enabled, etc, so that the CPU is woken once the fence condition
+has arrived.
+
+
+dma-buf-mgr overview
+--------------------
+
+dma-buf-mgr is a reservation manager, and it is used to handle the case where
+multiple devices want to access multiple dma-bufs in an arbitrary order, it
+uses dma-fences for synchronization. There are 3 steps that are important here:
+
+1. Reservation of all dma-buf buffers with dma-buf-mgr
+  - Create a struct dmabufmgr_validate for each one with a call to
+    dmabufmgr_validate_init()
+  - Reserve the list with dmabufmgr_reserve_buffers()
+2. Queueing waits and allocating a new dma-fence
+  - dmabufmgr_wait_timeout or custom implementation.
+    * Custom implementation can use dma_fence_wait, dma_fence_add_callback
+      or a custom method that would depend on the fence type.
+    * An implementation that uses dma_fence_add_callback can use the
+      refcounting of dmabufmgr_validate to do signal completion, when
+      the original list head is empty, all fences would have been signaled,
+      and the command sequence can start running. This requires a custom put.
+  - dma_fence_create, dma_seqno_fence_init or custom implementation
+    that calls __dma_fence_init.
+3. Committing with the new dma-fence.
+  - dmabufmgr_fence_buffer_objects
+  - reduce refcount of list by 1 with dmabufmgr_validate_put or custom put.
+
+The waits queued in step 2 don't have to be completed before commit, this
+allows users of dma-buf-mgr to prevent stalls for as long as possible.
