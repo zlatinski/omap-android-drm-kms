@@ -109,6 +109,17 @@ struct dma_fence_ops {
 	void (*release)(struct dma_fence *fence);
 };
 
+struct dma_seqno_fence {
+	struct dma_fence base;
+
+	const struct dma_fence_ops *ops;
+	struct dma_buf *sync_buf;
+	uint32_t seqno_ofs;
+	uint32_t seqno;
+};
+
+extern const struct dma_fence_ops dma_seqno_fence_ops;
+
 struct dma_fence *dma_fence_create(void *priv);
 
 /**
@@ -165,5 +176,72 @@ int dma_fence_add_callback(struct dma_fence *fence, struct dma_fence_cb *cb,
 			   dma_fence_func_t func, void *priv);
 bool dma_fence_remove_callback(struct dma_fence *fence,
 			       struct dma_fence_cb *cb);
+
+/**
+ * to_seqno_fence - cast a dma_fence to a dma_seqno_fence
+ * @fence: dma_fence to cast to a dma_seqno_fence
+ *
+ * Returns NULL if the dma_fence is not a dma_seqno_fence,
+ * or the dma_seqno_fence otherwise.
+ */
+static inline struct dma_seqno_fence *
+to_seqno_fence(struct dma_fence *fence)
+{
+	if (fence->ops != &dma_seqno_fence_ops)
+		return NULL;
+	return container_of(fence, struct dma_seqno_fence, base);
+}
+
+/**
+ * dma_seqno_fence_init - initialize a seqno fence
+ * @fence: dma_seqno_fence to initialize
+ * @sync_buf: buffer containing the memory location to signal on
+ * @seqno_ofs: the offset within @sync_buf
+ * @seqno: the sequence # to signal on
+ * @priv: value of priv member
+ * @ops: the dma_fence_ops for operations on this seqno fence
+ *
+ * This function initializes a struct dma_seqno_fence with passed parameters,
+ * and takes a reference on sync_buf which is released on fence destruction.
+ *
+ * A dma_seqno_fence is a dma_fence which can complete in software when
+ * enable_signaling is called, but it also completes when
+ * (s32)((sync_buf)[seqno_ofs] - seqno) >= 0 is true
+ *
+ * The dma_seqno_fence will take a refcount on the sync_buf until it's
+ * destroyed, but actual lifetime of sync_buf may be longer if one of the
+ * callers take a reference to it.
+ *
+ * Certain hardware have instructions to insert this type of wait condition
+ * in the command stream, so no intervention from software would be needed.
+ * This type of fence can be destroyed before completed, however a reference
+ * on the sync_buf dma-buf can be taken. It is encouraged to re-use the same
+ * dma-buf for sync_buf, since mapping or unmapping the sync_buf to the
+ * device's vm can be expensive.
+ *
+ * It is recommended for creators of dma_seqno_fence to call dma_fence_signal
+ * before destruction. This will prevent possible issues from wraparound at
+ * time of issue vs time of check, since users can check dma_fence_is_signaled
+ * before submitting instructions for the hardware to wait on the fence.
+ * However, when ops.enable_signaling is not called, it doesn't have to be
+ * done as soon as possible, just before there's any real danger of seqno
+ * wraparound.
+ */
+static inline void
+dma_seqno_fence_init(struct dma_seqno_fence *fence,
+			struct dma_buf *sync_buf,
+			uint32_t seqno_ofs, uint32_t seqno, void *priv,
+			const struct dma_fence_ops *ops)
+{
+	BUG_ON(!fence || !sync_buf || !ops->enable_signaling);
+
+	__dma_fence_init(&fence->base, &dma_seqno_fence_ops, priv);
+
+	get_dma_buf(sync_buf);
+	fence->ops = ops;
+	fence->sync_buf = sync_buf;
+	fence->seqno_ofs = seqno_ofs;
+	fence->seqno = seqno;
+}
 
 #endif /* __DMA_FENCE_H__ */

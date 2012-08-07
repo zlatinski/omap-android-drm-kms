@@ -345,3 +345,24 @@ struct dma_fence *dma_fence_create(void *priv)
 	return fence;
 }
 EXPORT_SYMBOL_GPL(dma_fence_create);
+
+static bool seqno_enable_signaling(struct dma_fence *fence)
+{
+	struct dma_seqno_fence *seqno_fence = to_seqno_fence(fence);
+	return seqno_fence->ops->enable_signaling(fence);
+}
+
+static void seqno_release(struct dma_fence *fence)
+{
+	struct dma_seqno_fence *f = to_seqno_fence(fence);
+
+	if (f->ops->release)
+		f->ops->release(fence);
+	dma_buf_put(f->sync_buf);
+}
+
+const struct dma_fence_ops dma_seqno_fence_ops = {
+	.enable_signaling = seqno_enable_signaling,
+	.release = seqno_release
+};
+EXPORT_SYMBOL_GPL(dma_seqno_fence_ops);
