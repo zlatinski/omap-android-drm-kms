@@ -973,6 +973,11 @@ struct drm_i915_gem_request {
 	/** global list entry for this request */
 	struct list_head list;
 
+	struct list_head prime_list;
+	spinlock_t prime_rm_lock;
+	int excc;
+	struct dma_fence *prime_fence;
+
 	struct drm_i915_file_private *file_priv;
 	/** file_priv list entry for this request */
 	struct list_head client_list;

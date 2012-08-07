@@ -342,6 +342,7 @@
 #define BSD_RING_BASE		0x04000
 #define GEN6_BSD_RING_BASE	0x12000
 #define BLT_RING_BASE		0x22000
+#define EXCC(ring)		((ring)->mmio_base+0x28)
 #define RING_TAIL(base)		((base)+0x30)
 #define RING_HEAD(base)		((base)+0x34)
 #define RING_START(base)	((base)+0x38)

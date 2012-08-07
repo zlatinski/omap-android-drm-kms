@@ -35,7 +35,7 @@
 #include <linux/slab.h>
 #include <linux/swap.h>
 #include <linux/pci.h>
-#include <linux/dma-buf.h>
+#include <linux/dma-buf-mgr.h>
 
 static __must_check int i915_gem_object_flush_gpu_write_domain(struct drm_i915_gem_object *obj);
 static void i915_gem_object_flush_gtt_write_domain(struct drm_i915_gem_object *obj);
@@ -1617,6 +1617,25 @@ i915_add_request(struct intel_ring_buffer *ring,
 	int ret;
 
 	BUG_ON(request == NULL);
+	/*
+	 * Emit any outstanding flushes - execbuf can fail to emit the flush
+	 * after having emitted the batchbuffer command. Hence we need to fix
+	 * things up similar to emitting the lazy request. The difference here
+	 * is that the flush _must_ happen before the next request, no matter
+	 * what.
+	 */
+	ret = intel_ring_flush_all_caches(ring);
+	if (ret)
+		return ret;
+
+	if (request == NULL) {
+		request = kmalloc(sizeof(*request), GFP_KERNEL);
+		if (request == NULL)
+			return -ENOMEM;
+	}
+	memset(&request->prime_list, 0, sizeof(request->prime_list));
+	request->excc = -1;
+
 	seqno = i915_gem_next_request_seqno(ring);
 
 	/* Record the position of the start of the request so that
@@ -1664,8 +1683,84 @@ i915_add_request(struct intel_ring_buffer *ring,
 	return 0;
 }
 
+static void i915_put_NOP(struct kref *ref)
+{
+}
+
 static inline void
-i915_gem_request_remove_from_client(struct drm_i915_gem_request *request)
+i915_gem_reset_requests(struct drm_i915_gem_request *request, bool reset)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&request->prime_rm_lock, flags);
+
+	if (!reset) {
+		/* Acquire lock to prevent a tiny race condition
+		 * where kfree occurs before spin_unlock_irqrestore
+		 * in the last trigger
+		 *
+		 * The request list should be empty at this point,
+		 * otherwise request started before all fences were
+		 * signaled, which should be impossible.
+		 */
+		WARN_ON(!list_empty(&request->prime_list));
+	}
+
+	while (!list_empty(&request->prime_list)) {
+		int i;
+		struct dmabufmgr_validate *val;
+
+		val = list_first_entry(&request->prime_list,
+				       struct dmabufmgr_validate, head);
+
+		dmabufmgr_validate_get(val);
+		for (i = 0; i < val->num_fences; ++i) {
+			struct dma_fence *f = val->fences[i];
+			bool removed;
+;
+			if (!f)
+				continue;
+
+			/* We cannot acquire event_queue.lock without dropping
+			 * prime_rm_lock first, this will trigger a deadlock.
+			 * as such, take a ref on dma_fence so it won't get
+			 * released behind our back. This is because our
+			 * callback hasn't run to completion yet, else
+			 * val->fencess[i] would be NULL.
+			 */
+			dma_fence_get(f);
+			spin_unlock_irqrestore(&request->prime_rm_lock, flags);
+
+			removed = dma_fence_remove_callback(f, &val->wait[i]);
+
+			if (removed) {
+				WARN_ON(!val->fences[i]);
+				val->fences[i] = NULL;
+
+				/* We're still holding a ref,
+				 * so no free should be done here
+				 */
+				WARN_ON(kref_put(&val->refcount, i915_put_NOP));
+			}
+			dma_fence_put(f);
+
+			spin_lock_irqsave(&request->prime_rm_lock, flags);
+		}
+
+		if (WARN_ON(!dmabufmgr_validate_put(val)))
+			/* Uh oh, we screwed up refcounting..
+			 * pretend we didn't and free anyhow.
+			 */
+			dmabufmgr_validate_free(&val->refcount);
+	}
+	spin_unlock_irqrestore(&request->prime_rm_lock, flags);
+
+	dma_fence_signal(request->prime_fence);
+	dma_fence_put(request->prime_fence);
+}
+
+static inline void
+i915_gem_request_remove_from_client(struct drm_i915_gem_request *request, bool reset)
 {
 	struct drm_i915_file_private *file_priv = request->file_priv;
 
@@ -1678,6 +1773,9 @@ i915_gem_request_remove_from_client(struct drm_i915_gem_request *request)
 		request->file_priv = NULL;
 	}
 	spin_unlock(&file_priv->mm.lock);
+
+	if (request->prime_list.next)
+		i915_gem_reset_requests(request, reset);
 }
 
 static void i915_gem_reset_ring_lists(struct drm_i915_private *dev_priv,
@@ -1691,7 +1789,7 @@ static void i915_gem_reset_ring_lists(struct drm_i915_private *dev_priv,
 					   list);
 
 		list_del(&request->list);
-		i915_gem_request_remove_from_client(request);
+		i915_gem_request_remove_from_client(request, true);
 		kfree(request);
 	}
 
@@ -1711,6 +1809,7 @@ static void i915_gem_reset_ring_lists(struct drm_i915_private *dev_priv,
 static void i915_gem_reset_fences(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct intel_ring_buffer *ring;
 	int i;
 
 	for (i = 0; i < dev_priv->num_fence_regs; i++) {
@@ -1729,6 +1828,12 @@ static void i915_gem_reset_fences(struct drm_device *dev)
 		reg->obj->last_fenced_ring = NULL;
 		i915_gem_clear_fence_reg(dev, reg);
 	}
+
+	for_each_ring(ring, dev_priv, i)
+		/* Clear out EXCC slots */
+		memset(ring->excc_seqno, 0, sizeof(ring->excc_seqno));
+
+	INIT_LIST_HEAD(&dev_priv->mm.fence_list);
 }
 
 void i915_gem_reset(struct drm_device *dev)
@@ -1807,7 +1912,8 @@ i915_gem_retire_requests_ring(struct intel_ring_buffer *ring)
 		ring->last_retired_head = request->tail;
 
 		list_del(&request->list);
-		i915_gem_request_remove_from_client(request);
+
+		i915_gem_request_remove_from_client(request, false);
 		kfree(request);
 	}
 

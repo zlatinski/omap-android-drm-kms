@@ -124,6 +124,10 @@ struct  intel_ring_buffer {
 	u32 sync_seqno_ofs;
 
 	void *private;
+
+	/* EXCC wait conditions */
+	u32 excc_seqno[5];
+	u32 excc_idx;
 };
 
 static inline unsigned

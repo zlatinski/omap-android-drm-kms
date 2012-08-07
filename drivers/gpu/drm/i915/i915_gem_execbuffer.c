@@ -534,7 +534,7 @@ i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 		if (!val)
 			return -ENOMEM;
 
-		dmabufmgr_validate_init(val, prime_val, dmabuf, obj, false);
+		dmabufmgr_validate_init(val, prime_val, dmabuf, NULL, false);
 	}
 
 	if (!list_empty(prime_val)) {
@@ -1020,34 +1020,130 @@ i915_gem_execbuffer_move_to_active(struct list_head *objects,
 	}
 }
 
+static void i915_put_BUG(struct kref *ref)
+{
+	BUG();
+}
+
+static void i915_dmabufmgr_validate_free(struct kref *ref)
+{
+	struct dmabufmgr_validate *val = container_of(ref,
+					struct dmabufmgr_validate, refcount);
+	struct drm_i915_gem_request *request = val->priv;
+	struct intel_ring_buffer *ring = request->ring;
+	struct drm_i915_private *dev_priv = ring->dev->dev_private;
+
+	list_del(&val->head);
+	kfree(val);
+
+	if (list_empty(&request->prime_list) &&
+	    !WARN_ON(request->excc < 0)) {
+		I915_WRITE(EXCC(ring), _MASKED_BIT_DISABLE(1 << request->excc));
+		POSTING_READ(EXCC(ring));
+	}
+}
+
+static int
+i915_prime_trigger(struct dma_fence_cb *cb, void *priv)
+{
+	struct dmabufmgr_validate *val = priv;
+	struct drm_i915_gem_request *request = val->priv;
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&request->prime_rm_lock, flags);
+	for (i = 0; i < val->num_fences; ++i) {
+		if (val->fences[i] == cb->fence) {
+			val->fences[i] = NULL;
+			break;
+		}
+	}
+	WARN_ON(i == val->num_fences);
+
+	kref_put(&val->refcount, i915_dmabufmgr_validate_free);
+	spin_unlock_irqrestore(&request->prime_rm_lock, flags);
+	return 0;
+}
+
 static void
 i915_gem_execbuffer_retire_commands(struct drm_device *dev,
-				    struct drm_file *file,
-				    struct intel_ring_buffer *ring)
+				    struct drm_file *file, int excc,
+				    struct dma_seqno_fence *fence,
+				    struct list_head *prime_val,
+				    struct intel_ring_buffer *ring, u32 seqno)
 {
+	struct dmabufmgr_validate *val, *tmp;
+	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct drm_i915_gem_request *request;
-	u32 invalidate;
+	unsigned long flags;
 
-	/*
-	 * Ensure that the commands in the batch buffer are
-	 * finished before the interrupt fires.
-	 *
-	 * The sampler always gets flushed on i965 (sigh).
-	 */
-	invalidate = I915_GEM_DOMAIN_COMMAND;
-	if (INTEL_INFO(dev)->gen >= 4)
-		invalidate |= I915_GEM_DOMAIN_SAMPLER;
-	if (ring->flush(ring, invalidate, 0)) {
-		i915_gem_next_request_seqno(ring);
+	/* Unconditionally force add_request to emit a full flush. */
+	ring->gpu_caches_dirty = true;
+
+	/* Add a breadcrumb for the completion of the batch buffer */
+	if (list_empty(prime_val)) {
+		(void)i915_add_request(ring, file, NULL);
 		return;
 	}
 
-	/* Add a breadcrumb for the completion of the batch buffer */
 	request = kzalloc(sizeof(*request), GFP_KERNEL);
-	if (request == NULL || i915_add_request(ring, file, request)) {
-		i915_gem_next_request_seqno(ring);
+	if (request == NULL)
+		goto err;
+
+	if (WARN_ON(excc < 0) || i915_add_request(ring, file, request)) {
 		kfree(request);
+		goto err;
 	}
+
+	if (WARN_ON(request->seqno != seqno))
+		fence->seqno = request->seqno;
+
+	request->prime_fence = dma_fence_get(&fence->base);
+	request->excc = excc;
+	INIT_LIST_HEAD(&request->prime_list);
+	spin_lock_init(&request->prime_rm_lock);
+	list_splice(prime_val, &request->prime_list);
+
+	list_for_each_entry(val, &request->prime_list, head) {
+		int i, ret;
+		val->priv = request;
+		for (i = 0; i < val->num_fences; ++i) {
+			struct dma_seqno_fence *f;
+
+			f = to_seqno_fence(val->fences[i]);
+			if (f && f->sync_buf == ring->sync_buf)
+				continue;
+
+			kref_get(&val->refcount);
+			ret = dma_fence_add_callback(val->fences[i],
+				&val->wait[i], i915_prime_trigger, val);
+			if (!ret)
+				val->num_waits++;
+			else {
+				val->fences[i] = NULL;
+				kref_put(&val->refcount, i915_put_BUG);
+			}
+		}
+	}
+
+	dmabufmgr_fence_buffer_objects(&fence->base,
+				       &request->prime_list);
+
+	spin_lock_irqsave(&request->prime_rm_lock, flags);
+	list_for_each_entry_safe(val, tmp, &request->prime_list, head)
+		kref_put(&val->refcount, i915_dmabufmgr_validate_free);
+	spin_unlock_irqrestore(&request->prime_rm_lock, flags);
+
+	return;
+
+err:
+	if (excc >= 0) {
+		I915_WRITE(EXCC(ring), _MASKED_BIT_DISABLE(1 << excc));
+		POSTING_READ(EXCC(ring));
+	}
+	dmabufmgr_backoff_reservation(prime_val);
+	list_for_each_entry_safe(val, tmp, prime_val, head)
+		dmabufmgr_validate_put(val);
 }
 
 static int
@@ -1125,27 +1221,68 @@ static const struct dma_fence_ops i915_dma_fence_ops = {
 static int
 i915_gem_execbuffer_fence_prime(struct list_head *prime_list,
 				struct intel_ring_buffer *ring,
-				u32 seqno, struct dma_seqno_fence **pfence)
+				u32 seqno, struct dma_seqno_fence **pfence,
+				int *pexcc)
 {
+	drm_i915_private_t *dev_priv = ring->dev->dev_private;
 	struct dma_seqno_fence *f;
-	int ret;
+	int ret, excc, cond;
 
 	if (list_empty(prime_list))
 		return 0;
 
-	ret = dmabufmgr_wait_timeout(prime_list, false, HZ);
-	if (!ret)
-		return -EBUSY;
-	if (ret < 0)
-		return ret;
+	excc = ring->excc_idx;
+	if (ring->excc_seqno[excc]) {
+		ret = i915_wait_seqno(ring, ring->excc_seqno[excc]);
+		if (ret)
+			return ret;
+	}
 
 	f = kzalloc(sizeof(*f) + sizeof(wait_queue_t), GFP_KERNEL);
 	if (!f)
 		return -ENOMEM;
 
+	I915_WRITE(EXCC(ring), _MASKED_BIT_ENABLE(1 << excc));
+	POSTING_READ(EXCC(ring));
+
+	ret = intel_ring_begin(ring, dev_priv->info->gen < 7 ? 2 : 10);
+	if (ret) {
+		kfree(f);
+		return ret;
+	}
+
+	if (dev_priv->info->gen >= 7) {
+		intel_ring_emit(ring, MI_NOOP);
+		intel_ring_emit(ring, MI_LOAD_REGISTER_IMM(1));
+		intel_ring_emit(ring, FORCEWAKE_MT);
+		intel_ring_emit(ring, _MASKED_BIT_ENABLE(2));
+	}
+
+	if (dev_priv->info->gen < 6)
+		cond = (1 + excc) << 9;
+	else
+		cond = (1 + excc) << 16;
+
+	intel_ring_emit(ring, MI_WAIT_FOR_EVENT | cond);
+	intel_ring_emit(ring, MI_NOOP);
+
+	if (dev_priv->info->gen >= 7) {
+		intel_ring_emit(ring, MI_NOOP);
+		intel_ring_emit(ring, MI_LOAD_REGISTER_IMM(1));
+		intel_ring_emit(ring, FORCEWAKE_MT);
+		intel_ring_emit(ring, _MASKED_BIT_DISABLE(2));
+	}
+	intel_ring_advance(ring);
+
 	dma_seqno_fence_init(f, ring->sync_buf, ring->sync_seqno_ofs,
 			     seqno, ring, &i915_dma_fence_ops);
+
+	ring->excc_seqno[excc] = seqno;
+	if (++ring->excc_idx == ARRAY_SIZE(ring->excc_seqno))
+		ring->excc_idx = 0;
+
 	*pfence = f;
+	*pexcc = excc;
 	return 0;
 }
 
@@ -1168,7 +1305,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 	u32 exec_start, exec_len;
 	u32 seqno;
 	u32 mask;
-	int ret, mode, i;
+	int ret, mode, i, excc = -1;
 
 	if (!i915_gem_check_execbuffer(args)) {
 		DRM_DEBUG("execbuf with invalid offset/length\n");
@@ -1390,7 +1527,8 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 	if (ret)
 		goto err;
 
-	ret = i915_gem_execbuffer_fence_prime(&prime_val, ring, seqno, &fence);
+	ret = i915_gem_execbuffer_fence_prime(&prime_val, ring, seqno,
+					      &fence, &excc);
 	if (ret)
 		goto err;
 
@@ -1417,22 +1555,21 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 	}
 
 	i915_gem_execbuffer_move_to_active(&objects, ring, seqno);
-	i915_gem_execbuffer_retire_commands(dev, file, ring);
-	if (!list_empty(&prime_val)) {
-		if (WARN_ON(!fence))
-			goto err;
-		dmabufmgr_fence_buffer_objects(&fence->base, &prime_val);
-	}
+	i915_gem_execbuffer_retire_commands(dev, file, excc, fence,
+					    &prime_val, ring, seqno);
 	goto out;
 
 err:
+	if (excc >= 0) {
+		I915_WRITE(EXCC(ring), _MASKED_BIT_DISABLE(1 << excc));
+		POSTING_READ(EXCC(ring));
+	}
 	dmabufmgr_backoff_reservation(&prime_val);
+	list_for_each_entry_safe(val, tmp, &prime_val, head)
+		dmabufmgr_validate_put(val);
 out:
 	if (fence)
 		dma_fence_put(&fence->base);
-
-	list_for_each_entry_safe(val, tmp, &prime_val, head)
-		dmabufmgr_validate_put(val);
 
 	eb_destroy(eb);
 	while (!list_empty(&objects)) {
