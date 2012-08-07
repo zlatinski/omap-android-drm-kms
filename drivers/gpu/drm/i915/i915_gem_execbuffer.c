@@ -33,6 +33,7 @@
 #include "i915_trace.h"
 #include "intel_drv.h"
 #include <linux/dma_remapping.h>
+#include <linux/dma-buf-mgr.h>
 
 struct change_domains {
 	uint32_t invalidate_domains;
@@ -513,13 +514,34 @@ err_unpin:
 static int
 i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 			    struct drm_file *file,
-			    struct list_head *objects)
+			    struct list_head *objects,
+			    struct list_head *prime_val)
 {
 	drm_i915_private_t *dev_priv = ring->dev->dev_private;
 	struct drm_i915_gem_object *obj;
 	int ret, retry;
 	bool has_fenced_gpu_access = INTEL_INFO(ring->dev)->gen < 4;
 	struct list_head ordered_objects;
+
+	list_for_each_entry(obj, objects, exec_list) {
+		struct dmabufmgr_validate *val;
+		struct dma_buf *dmabuf;
+
+		if (!(dmabuf = drm_gem_get_dmabuf(&obj->base)))
+			continue;
+
+		val = kzalloc(sizeof(*val), GFP_KERNEL);
+		if (!val)
+			return -ENOMEM;
+
+		dmabufmgr_validate_init(val, prime_val, dmabuf, obj, false);
+	}
+
+	if (!list_empty(prime_val)) {
+		ret = dmabufmgr_reserve_buffers(prime_val);
+		if (ret)
+			return ret;
+	}
 
 	INIT_LIST_HEAD(&ordered_objects);
 	while (!list_empty(objects)) {
@@ -671,16 +693,23 @@ i915_gem_execbuffer_relocate_slow(struct drm_device *dev,
 				  struct drm_file *file,
 				  struct intel_ring_buffer *ring,
 				  struct list_head *objects,
+				  struct list_head *prime_val,
 				  struct eb_objects *eb,
 				  struct drm_i915_gem_exec_object2 *exec,
 				  int count)
 {
 	struct drm_i915_gem_relocation_entry *reloc;
+	struct dmabufmgr_validate *val, *tmp;
 	struct drm_i915_gem_object *obj;
 	int *reloc_offset;
 	int i, total, ret;
 
 	/* We may process another execbuffer during the unlock... */
+
+	dmabufmgr_backoff_reservation(prime_val);
+	list_for_each_entry_safe(val, tmp, prime_val, head)
+		dmabufmgr_validate_put(val);
+
 	while (!list_empty(objects)) {
 		obj = list_first_entry(objects,
 				       struct drm_i915_gem_object,
@@ -745,7 +774,7 @@ i915_gem_execbuffer_relocate_slow(struct drm_device *dev,
 		eb_add_object(eb, obj);
 	}
 
-	ret = i915_gem_execbuffer_reserve(ring, file, objects);
+	ret = i915_gem_execbuffer_reserve(ring, file, objects, prime_val);
 	if (ret)
 		goto err;
 
@@ -1047,6 +1076,80 @@ i915_reset_gen7_sol_offsets(struct drm_device *dev,
 }
 
 static int
+i915_gem_execbuffer_fence_prime_check(wait_queue_t *wait, unsigned mode,
+		int flags, void *key)
+{
+	struct dma_seqno_fence *f = wait->private;
+	struct intel_ring_buffer *ring = f->base.priv;
+	drm_i915_private_t *dev_priv = ring->dev->dev_private;
+
+	if (!i915_seqno_passed(ring->get_seqno(ring), f->seqno) &&
+	    !atomic_read(&dev_priv->mm.wedged))
+		return 0;
+
+	dma_fence_signal(&f->base);
+
+	__remove_wait_queue(&ring->irq_queue, wait);
+	dma_fence_put(&f->base);
+	ring->irq_put(ring);
+	return 0;
+}
+
+static bool
+i915_gem_execbuffer_fence_prime_enable(struct dma_fence *fence)
+{
+	struct intel_ring_buffer *ring = fence->priv;
+	struct dma_seqno_fence *f = to_seqno_fence(fence);
+	drm_i915_private_t *dev_priv = ring->dev->dev_private;
+	wait_queue_t *wait = (void *)&f[1];
+
+	if (i915_seqno_passed(ring->get_seqno(ring), f->seqno) ||
+	    atomic_read(&dev_priv->mm.wedged))
+		return false;
+
+	if (WARN_ON(!ring->irq_get(ring)))
+		return false;
+
+	wait->flags = 0;
+	wait->private = f;
+	wait->func = i915_gem_execbuffer_fence_prime_check;
+	dma_fence_get(fence);
+	add_wait_queue(&ring->irq_queue, wait);
+	return true;
+}
+
+static const struct dma_fence_ops i915_dma_fence_ops = {
+	.enable_signaling = i915_gem_execbuffer_fence_prime_enable
+};
+
+static int
+i915_gem_execbuffer_fence_prime(struct list_head *prime_list,
+				struct intel_ring_buffer *ring,
+				u32 seqno, struct dma_seqno_fence **pfence)
+{
+	struct dma_seqno_fence *f;
+	int ret;
+
+	if (list_empty(prime_list))
+		return 0;
+
+	ret = dmabufmgr_wait_timeout(prime_list, false, HZ);
+	if (!ret)
+		return -EBUSY;
+	if (ret < 0)
+		return ret;
+
+	f = kzalloc(sizeof(*f) + sizeof(wait_queue_t), GFP_KERNEL);
+	if (!f)
+		return -ENOMEM;
+
+	dma_seqno_fence_init(f, ring->sync_buf, ring->sync_seqno_ofs,
+			     seqno, ring, &i915_dma_fence_ops);
+	*pfence = f;
+	return 0;
+}
+
+static int
 i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 		       struct drm_file *file,
 		       struct drm_i915_gem_execbuffer2 *args,
@@ -1054,10 +1157,14 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 {
 	drm_i915_private_t *dev_priv = dev->dev_private;
 	struct list_head objects;
+	struct list_head prime_val;
 	struct eb_objects *eb;
 	struct drm_i915_gem_object *batch_obj;
 	struct drm_clip_rect *cliprects = NULL;
 	struct intel_ring_buffer *ring;
+	struct dma_seqno_fence *fence = NULL;
+	struct dmabufmgr_validate *val, *tmp;
+	u32 ctx_id = i915_execbuffer2_get_context_id(*args);
 	u32 exec_start, exec_len;
 	u32 seqno;
 	u32 mask;
@@ -1173,6 +1280,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 
 	/* Look up object handles */
 	INIT_LIST_HEAD(&objects);
+	INIT_LIST_HEAD(&prime_val);
 	for (i = 0; i < args->buffer_count; i++) {
 		struct drm_i915_gem_object *obj;
 
@@ -1204,8 +1312,14 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 			       struct drm_i915_gem_object,
 			       exec_list);
 
+	if (drm_gem_get_dmabuf(&batch_obj->base)) {
+		DRM_DEBUG("Batch buffer should really not be prime..\n");
+		ret = -EINVAL;
+		goto err;
+	}
+
 	/* Move the objects en-masse into the GTT, evicting if necessary. */
-	ret = i915_gem_execbuffer_reserve(ring, file, &objects);
+	ret = i915_gem_execbuffer_reserve(ring, file, &objects, &prime_val);
 	if (ret)
 		goto err;
 
@@ -1214,8 +1328,9 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 	if (ret) {
 		if (ret == -EFAULT) {
 			ret = i915_gem_execbuffer_relocate_slow(dev, file, ring,
-								&objects, eb,
-								exec,
+								&objects,
+								&prime_val,
+								eb, exec,
 								args->buffer_count);
 			BUG_ON(!mutex_is_locked(&dev->struct_mutex));
 		}
@@ -1254,7 +1369,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 	    mode != dev_priv->relative_constants_mode) {
 		ret = intel_ring_begin(ring, 4);
 		if (ret)
-				goto err;
+			goto err;
 
 		intel_ring_emit(ring, MI_NOOP);
 		intel_ring_emit(ring, MI_LOAD_REGISTER_IMM(1));
@@ -1270,6 +1385,14 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 		if (ret)
 			goto err;
 	}
+
+	ret = i915_switch_context(ring, file, ctx_id);
+	if (ret)
+		goto err;
+
+	ret = i915_gem_execbuffer_fence_prime(&prime_val, ring, seqno, &fence);
+	if (ret)
+		goto err;
 
 	trace_i915_gem_ring_dispatch(ring, seqno);
 
@@ -1295,8 +1418,22 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 
 	i915_gem_execbuffer_move_to_active(&objects, ring, seqno);
 	i915_gem_execbuffer_retire_commands(dev, file, ring);
+	if (!list_empty(&prime_val)) {
+		if (WARN_ON(!fence))
+			goto err;
+		dmabufmgr_fence_buffer_objects(&fence->base, &prime_val);
+	}
+	goto out;
 
 err:
+	dmabufmgr_backoff_reservation(&prime_val);
+out:
+	if (fence)
+		dma_fence_put(&fence->base);
+
+	list_for_each_entry_safe(val, tmp, &prime_val, head)
+		dmabufmgr_validate_put(val);
+
 	eb_destroy(eb);
 	while (!list_empty(&objects)) {
 		struct drm_i915_gem_object *obj;
