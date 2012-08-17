@@ -44,7 +44,8 @@ static void omap_irq_update(struct drm_device *dev)
 void omap_irq_register(struct drm_device *dev, struct omap_drm_irq *irq)
 {
 	struct omap_drm_private *priv = dev->dev_private;
-	WARN_ON(irq->registered);
+	if (WARN_ON(irq->registered))
+		return;
 	irq->registered = true;
 	list_add(&irq->node, &priv->irq_list);
 	omap_irq_update(dev);
@@ -52,7 +53,8 @@ void omap_irq_register(struct drm_device *dev, struct omap_drm_irq *irq)
 
 void omap_irq_unregister(struct drm_device *dev, struct omap_drm_irq *irq)
 {
-	WARN_ON(!irq->registered);
+	if (WARN_ON(!irq->registered))
+		return;
 	irq->registered = false;
 	list_del(&irq->node);
 	omap_irq_update(dev);
@@ -75,7 +77,7 @@ int omap_irq_enable_vblank(struct drm_device *dev, int crtc)
 {
 	struct omap_drm_private *priv = dev->dev_private;
 	DBG("dev=%p, crtc=%d", dev, crtc);
-	priv->vblank_mask &= ~pipe2vbl(crtc);
+	priv->vblank_mask |= pipe2vbl(crtc);
 	omap_irq_update(dev);
 	return 0;
 }
