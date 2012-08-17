@@ -207,6 +207,7 @@ static void page_flip_worker(struct work_struct *work)
 	struct drm_crtc *crtc = &omap_crtc->base;
 	struct drm_device *dev = crtc->dev;
 	struct drm_display_mode *mode = &crtc->mode;
+	struct drm_gem_object *bo;
 
 	mutex_lock(&dev->mode_config.mutex);
 	omap_plane_mode_set(omap_crtc->plane, crtc, crtc->fb,
@@ -215,6 +216,9 @@ static void page_flip_worker(struct work_struct *work)
 			mode->hdisplay << 16, mode->vdisplay << 16,
 			vblank_cb, crtc);
 	mutex_unlock(&dev->mode_config.mutex);
+
+	bo = omap_framebuffer_bo(crtc->fb, 0);
+	drm_gem_object_unreference_unlocked(bo);
 }
 
 static void page_flip_cb(void *arg)
@@ -233,6 +237,7 @@ static int omap_crtc_page_flip_locked(struct drm_crtc *crtc,
 {
 	struct drm_device *dev = crtc->dev;
 	struct omap_crtc *omap_crtc = to_omap_crtc(crtc);
+	struct drm_gem_object *bo;
 
 	DBG("%d -> %d (event=%p)", crtc->fb ? crtc->fb->base.id : -1,
 			fb->base.id, event);
@@ -245,7 +250,15 @@ static int omap_crtc_page_flip_locked(struct drm_crtc *crtc,
 	omap_crtc->event = event;
 	crtc->fb = fb;
 
-	omap_gem_op_async(omap_framebuffer_bo(fb, 0), OMAP_GEM_READ,
+	/*
+	 * Hold a reference temporarily until the crtc is updated
+	 * and takes the reference to the bo.  This avoids it
+	 * getting freed from under us:
+	 */
+	bo = omap_framebuffer_bo(fb, 0);
+	drm_gem_object_reference(bo);
+
+	omap_gem_op_async(bo, OMAP_GEM_READ,
 			page_flip_cb, crtc);
 
 	return 0;
