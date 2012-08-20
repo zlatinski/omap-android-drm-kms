@@ -141,7 +141,6 @@ static void ttm_bo_release_list(struct kref *list_kref)
 
 	BUG_ON(atomic_read(&bo->list_kref.refcount));
 	BUG_ON(atomic_read(&bo->kref.refcount));
-	BUG_ON(atomic_read(&bo->cpu_writers));
 	BUG_ON(bo->sync_obj != NULL);
 	BUG_ON(bo->mem.mm_node != NULL);
 	BUG_ON(!list_empty(&bo->lru));
@@ -1050,16 +1049,6 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 }
 EXPORT_SYMBOL(ttm_bo_mem_space);
 
-int ttm_bo_wait_cpu(struct ttm_buffer_object *bo, bool no_wait)
-{
-	if ((atomic_read(&bo->cpu_writers) > 0) && no_wait)
-		return -EBUSY;
-
-	return wait_event_interruptible(bo->event_queue,
-					atomic_read(&bo->cpu_writers) == 0);
-}
-EXPORT_SYMBOL(ttm_bo_wait_cpu);
-
 int ttm_bo_move_buffer(struct ttm_buffer_object *bo,
 			struct ttm_placement *placement,
 			bool interruptible, bool no_wait_reserve,
@@ -1211,7 +1200,6 @@ int ttm_bo_init(struct ttm_bo_device *bdev,
 
 	kref_init(&bo->kref);
 	kref_init(&bo->list_kref);
-	atomic_set(&bo->cpu_writers, 0);
 	atomic_set(&bo->reserved, 1);
 	init_waitqueue_head(&bo->event_queue);
 	INIT_LIST_HEAD(&bo->lru);
@@ -1767,35 +1755,6 @@ int ttm_bo_wait(struct ttm_buffer_object *bo,
 	return 0;
 }
 EXPORT_SYMBOL(ttm_bo_wait);
-
-int ttm_bo_synccpu_write_grab(struct ttm_buffer_object *bo, bool no_wait)
-{
-	struct ttm_bo_device *bdev = bo->bdev;
-	int ret = 0;
-
-	/*
-	 * Using ttm_bo_reserve makes sure the lru lists are updated.
-	 */
-
-	ret = ttm_bo_reserve(bo, true, no_wait, false, 0);
-	if (unlikely(ret != 0))
-		return ret;
-	spin_lock(&bdev->fence_lock);
-	ret = ttm_bo_wait(bo, false, true, no_wait);
-	spin_unlock(&bdev->fence_lock);
-	if (likely(ret == 0))
-		atomic_inc(&bo->cpu_writers);
-	ttm_bo_unreserve(bo);
-	return ret;
-}
-EXPORT_SYMBOL(ttm_bo_synccpu_write_grab);
-
-void ttm_bo_synccpu_write_release(struct ttm_buffer_object *bo)
-{
-	if (atomic_dec_and_test(&bo->cpu_writers))
-		wake_up_all(&bo->event_queue);
-}
-EXPORT_SYMBOL(ttm_bo_synccpu_write_release);
 
 /**
  * A buffer object shrink method that tries to swap out the first

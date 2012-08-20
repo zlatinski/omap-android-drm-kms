@@ -225,12 +225,6 @@ struct ttm_buffer_object {
 	bool evicted;
 
 	/**
-	 * Members protected by the bo::reserved lock only when written to.
-	 */
-
-	atomic_t cpu_writers;
-
-	/**
 	 * Members protected by the bdev::lru_lock.
 	 */
 
@@ -423,31 +417,6 @@ extern void ttm_bo_unlock_delayed_workqueue(struct ttm_bo_device *bdev,
 					    int resched);
 
 /**
- * ttm_bo_synccpu_write_grab
- *
- * @bo: The buffer object:
- * @no_wait: Return immediately if buffer is busy.
- *
- * Synchronizes a buffer object for CPU RW access. This means
- * blocking command submission that affects the buffer and
- * waiting for buffer idle. This lock is recursive.
- * Returns
- * -EBUSY if the buffer is busy and no_wait is true.
- * -ERESTARTSYS if interrupted by a signal.
- */
-extern int
-ttm_bo_synccpu_write_grab(struct ttm_buffer_object *bo, bool no_wait);
-
-/**
- * ttm_bo_synccpu_write_release:
- *
- * @bo : The buffer object.
- *
- * Releases a synccpu lock.
- */
-extern void ttm_bo_synccpu_write_release(struct ttm_buffer_object *bo);
-
-/**
  * ttm_bo_acc_size
  *
  * @bdev: Pointer to a ttm_bo_device struct.
@@ -513,7 +482,7 @@ extern int ttm_bo_init(struct ttm_bo_device *bdev,
 			void (*destroy) (struct ttm_buffer_object *));
 
 /**
- * ttm_bo_synccpu_object_init
+ * ttm_bo_create
  *
  * @bdev: Pointer to a ttm_bo_device struct.
  * @bo: Pointer to a ttm_buffer_object to be initialized.

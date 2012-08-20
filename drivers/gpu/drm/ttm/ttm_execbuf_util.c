@@ -181,15 +181,6 @@ retry_this_bo:
 		}
 
 		entry->reserved = true;
-		if (unlikely(atomic_read(&bo->cpu_writers) > 0)) {
-			ttm_eu_backoff_reservation_locked(list);
-			spin_unlock(&glob->lru_lock);
-			ttm_eu_list_ref_sub(list);
-			ret = ttm_bo_wait_cpu(bo, false);
-			if (ret)
-				return ret;
-			goto retry;
-		}
 	}
 
 	ttm_eu_del_from_lru_locked(list);
