@@ -40,7 +40,7 @@
 #include <video/omapdss.h>
 #include <video/dsscomp.h>
 #include <plat/dsscomp.h>
-#include "../../../drivers/staging/omapdrm/omap_dmm_tiler.h"
+#include "../../../drivers/gpu/drm/omapdrm/omap_dmm_tiler.h"
 #include "dsscomp.h"
 #include "../dss/dss_features.h"
 #include "../dss/dss.h"

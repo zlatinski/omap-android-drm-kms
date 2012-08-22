@@ -991,7 +991,9 @@ static void __init omap_4430sdp_init(void)
 		pr_err("Keypad initialization failed: %d\n", status);
 
 	omap_init_dmm_tiler();
+#ifdef CONFIG_ION_OMAP
 	omap4_register_ion();
+#endif
 	omap_4430sdp_display_init();
 
 	if (cpu_is_omap446x()) {
@@ -1006,7 +1008,9 @@ static void __init omap_4430sdp_init(void)
 static void __init omap_4430sdp_reserve(void)
 {
 	omap_rproc_reserve_cma(RPROC_CMA_OMAP4);
+#ifdef CONFIG_ION_OMAP
 	omap4_ion_init();
+#endif
 	omap_reserve();
 }
 

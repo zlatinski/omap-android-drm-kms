@@ -75,6 +75,7 @@ enum omap_channel {
 	OMAP_DSS_CHANNEL_LCD	= 0,
 	OMAP_DSS_CHANNEL_DIGIT	= 1,
 	OMAP_DSS_CHANNEL_LCD2	= 2,
+	OMAP_DSS_CHANNEL_INVALID = -1,
 };
 
 enum omap_color_mode {
@@ -380,6 +381,7 @@ struct omap_dss_board_info {
 	struct omap_dss_device *default_device;
 	int (*dsi_enable_pads)(int dsi_id, unsigned lane_mask);
 	void (*dsi_disable_pads)(int dsi_id, unsigned lane_mask);
+	int (*set_min_bus_tput)(struct device *dev, unsigned long r);
 };
 
 /* Init with the board info */
@@ -707,6 +709,7 @@ struct omap_dss_device {
 	enum omap_display_caps caps;
 
 	struct omap_overlay_manager *manager;
+	enum omap_channel manager_id;
 
 	enum omap_dss_display_state state;
 
@@ -718,6 +721,18 @@ struct omap_dss_device {
 	int (*set_backlight)(struct omap_dss_device *dssdev, int level);
 	int (*get_backlight)(struct omap_dss_device *dssdev);
 };
+
+static inline enum omap_channel
+omap_dss_device_channel(struct omap_dss_device *dssdev)
+{
+#ifdef CONFIG_OMAP2_DSS_HL
+	if (!dssdev->manager)
+		return OMAP_DSS_CHANNEL_INVALID;
+	return dssdev->manager->id;
+#else
+	return dssdev->manager_id;
+#endif
+}
 
 struct omap_dss_hdmi_data
 {
@@ -819,6 +834,8 @@ struct omap_overlay *omap_dss_get_overlay(int num);
 void omapdss_default_get_resolution(struct omap_dss_device *dssdev,
 		u16 *xres, u16 *yres);
 int omapdss_default_get_recommended_bpp(struct omap_dss_device *dssdev);
+void omapdss_default_get_timings(struct omap_dss_device *dssdev,
+		struct omap_video_timings *timings);
 
 typedef void (*omap_dispc_isr_t) (void *arg, u32 mask);
 int omap_dispc_register_isr(omap_dispc_isr_t isr, void *arg, u32 mask);

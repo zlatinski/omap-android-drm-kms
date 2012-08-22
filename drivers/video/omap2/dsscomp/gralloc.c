@@ -23,7 +23,7 @@
 #include <linux/slab.h>
 #include <linux/sched.h>
 #include <linux/vmalloc.h>
-#include "../../../drivers/staging/omapdrm/omap_dmm_tiler.h"
+#include "../../../drivers/gpu/drm/omapdrm/omap_dmm_tiler.h"
 #include <video/dsscomp.h>
 #include <plat/dsscomp.h>
 #include "dsscomp.h"

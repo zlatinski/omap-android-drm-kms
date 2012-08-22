@@ -22,6 +22,7 @@
 #include "drm_mode.h"
 #include "drm_crtc.h"
 #include "drm_crtc_helper.h"
+#include "dss/dss.h"
 
 #define to_omap_crtc(x) container_of(x, struct omap_crtc, base)
 
@@ -438,7 +439,7 @@ struct drm_crtc *omap_crtc_init(struct drm_device *dev,
 {
 	struct drm_crtc *crtc = NULL;
 	struct omap_crtc *omap_crtc;
-	struct omap_overlay_manager_info *info;
+//	struct omap_overlay_manager_info *info;
 
 	DBG("%s", channel_names[channel]);
 
@@ -470,10 +471,10 @@ struct drm_crtc *omap_crtc_init(struct drm_device *dev,
 	omap_crtc->pipe = id;
 
 	/* TODO: fix hard-coded setup.. add properties! */
-	info->default_color = 0x00000000;
-	info->trans_key = 0x00000000;
-	info->trans_key_type = OMAP_DSS_COLOR_KEY_GFX_DST;
-	info->trans_enabled = false;
+//	info->default_color = 0x00000000;
+//	info->trans_key = 0x00000000;
+//	info->trans_key_type = OMAP_DSS_COLOR_KEY_GFX_DST;
+//	info->trans_enabled = false;
 
 	drm_crtc_init(dev, crtc, &omap_crtc_funcs);
 	drm_crtc_helper_add(crtc, &omap_crtc_helper_funcs);
