@@ -1,4 +1,3 @@
-
 menuconfig DRM_OMAP
 	tristate "OMAP DRM"
 	depends on ARCH_OMAP2PLUS && DRM
@@ -9,9 +8,9 @@ menuconfig DRM_OMAP
 
 config DRM_OMAP_DISPLAY
 	tristate "OMAP DRM Display Driver"
-	depends on DRM_OMAP && !CONFIG_FB_OMAP2
+	depends on DRM_OMAP && !OMAP2_DSS && !CONFIG_FB_OMAP2
 	select DRM_KMS_HELPER
-	select OMAP2_DSS
+	select OMAP_DRM_DSS
 	select FB_SYS_FILLRECT
 	select FB_SYS_COPYAREA
 	select FB_SYS_IMAGEBLIT
@@ -37,3 +36,7 @@ config DRM_OMAP_DMM_TILER
 	default y
 	help
 	  Enable the DMM/Tiler driver for OMAP4+ boards.
+
+source drivers/gpu/drm/omapdrm/dss/Kconfig
+
+

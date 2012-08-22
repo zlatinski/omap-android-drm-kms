@@ -22,7 +22,7 @@
 #include <linux/kernel.h>
 
 #include <linux/notifier.h>
-#include "../../../drivers/staging/omapdrm/omap_dmm_tiler.h"
+#include "../../../drivers/gpu/drm/omapdrm/omap_dmm_tiler.h"
 
 #include <video/omapdss.h>
 #include <video/dsscomp.h>

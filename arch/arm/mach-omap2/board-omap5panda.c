@@ -912,7 +912,9 @@ static void __init omap_5_panda_init(void)
 	platform_add_devices(omap5evm_devices, ARRAY_SIZE(omap5evm_devices));
 
 	omap_init_dmm_tiler();
+#ifdef CONFIG_ION_OMAP
 	omap5_register_ion();
+#endif
 	omap5panda_display_init();
 }
 
@@ -920,7 +922,9 @@ static void __init omap_panda5_reserve(void)
 {
 	omap_rproc_reserve_cma(RPROC_CMA_OMAP5);
 
+#ifdef CONFIG_ION_OMAP
 	omap5_ion_init();
+#endif
 
 	omap_reserve();
 }

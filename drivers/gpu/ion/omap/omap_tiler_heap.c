@@ -23,7 +23,7 @@
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
-#include "../../../drivers/staging/omapdrm/omap_dmm_tiler.h"
+#include "../../drm/omapdrm/omap_dmm_tiler.h"
 #include <asm/mach/map.h>
 #include <asm/page.h>
 

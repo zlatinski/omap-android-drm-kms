@@ -28,7 +28,7 @@
 #define OMAP5_ION_HEAP_TILER_SIZE	(SZ_128M - SZ_32M - \
 					OMAP5_ION_HEAP_NONSECURE_TILER_SIZE)
 
-#ifdef CONFIG_ION_OMAP
+#if defined(CONFIG_ION_OMAP) || defined(CONFIG_ION_OMAP_MODULE)
 void omap5_ion_init(void);
 void omap5_register_ion(void);
 #else

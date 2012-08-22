@@ -21,6 +21,7 @@
 
 #include "drm_crtc.h"
 #include "drm_crtc_helper.h"
+#include "dss/dss.h"
 
 /*
  * connector funcs

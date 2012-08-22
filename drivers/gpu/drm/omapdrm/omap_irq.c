@@ -18,6 +18,7 @@
  */
 
 #include "omap_drv.h"
+#include "dss/dss.h"
 
 static void omap_irq_error_handler(struct omap_drm_irq *irq,
 		uint32_t irqstatus)

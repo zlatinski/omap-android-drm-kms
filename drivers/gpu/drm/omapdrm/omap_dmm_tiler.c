@@ -194,7 +194,7 @@ static struct dmm_txn *dmm_txn_init(struct dmm *dmm, struct tcm *tcm)
  * corresponding slot is cleared (ie. dummy_pa is programmed)
  */
 static int dmm_txn_append(struct dmm_txn *txn, struct pat_area *area,
-		struct page **pages, uint32_t npages, uint32_t roll,
+		struct mem_info *mem, uint32_t npages, uint32_t roll,
 		uint32_t y_offset)
 {
 	dma_addr_t pat_pa = 0;
@@ -323,7 +323,7 @@ static int fill(struct tcm_area *area, struct mem_info *mem, uint32_t npages,
 				.x1 = slice.p1.x, .y1 = slice.p1.y,
 		};
 
-		ret = dmm_txn_append(txn, &p_area, pages, npages, roll,
+		ret = dmm_txn_append(txn, &p_area, mem, npages, roll,
 					y_offset);
 		if (ret)
 			goto fail;
@@ -502,7 +502,7 @@ EXPORT_SYMBOL(tiler_release);
  * Otherwise the bits indicated the corresponding bit address to access
  * the SDRAM.
  */
-static u32 tiler_get_address(enum tiler_fmt fmt, u32 orient, u32 x, u32 y)
+static u32 tiler_get_address(u32 orient, enum tiler_fmt fmt, u32 x, u32 y)
 {
 	u32 x_bits, y_bits, tmp, x_mask, y_mask, alignment;
 
@@ -539,7 +539,7 @@ dma_addr_t tiler_ssptr(struct tiler_block *block)
 {
 	WARN_ON(!validfmt(block->fmt));
 
-	return TILVIEW_8BIT + tiler_get_address(block->fmt, 0,
+	return TILVIEW_8BIT + tiler_get_address(0, block->fmt,
 			block->area.p0.x * geom[block->fmt].slot_w,
 			block->area.p0.y * geom[block->fmt].slot_h);
 }
@@ -564,7 +564,21 @@ void tiler_align(enum tiler_fmt fmt, uint16_t *w, uint16_t *h)
 }
 EXPORT_SYMBOL(tiler_align);
 
-uint32_t tiler_stride(enum tiler_fmt fmt, uint32_t orient)
+uint32_t tiler_stride(dma_addr_t tsptr)
+{
+	enum tiler_fmt fmt = TILER_FMT(tsptr);
+	WARN_ON(!validfmt(fmt));
+
+	if (fmt == TILFMT_PAGE)
+		return 0;
+	else if (tsptr & MASK_XY_FLIP)
+		return 1 << (CONT_HEIGHT_BITS + geom[fmt].x_shft);
+	else
+		return 1 << (CONT_WIDTH_BITS + geom[fmt].y_shft);
+}
+EXPORT_SYMBOL(tiler_stride);
+
+uint32_t tiler_stride_format(enum tiler_fmt fmt, uint32_t orient)
 {
 	BUG_ON(!validfmt(fmt));
 
@@ -573,7 +587,7 @@ uint32_t tiler_stride(enum tiler_fmt fmt, uint32_t orient)
 	else
 		return 1 << (CONT_WIDTH_BITS + geom[fmt].y_shft);
 }
-EXPORT_SYMBOL(tiler_stride);
+EXPORT_SYMBOL(tiler_stride_format);
 
 size_t tiler_size(enum tiler_fmt fmt, uint16_t w, uint16_t h)
 {

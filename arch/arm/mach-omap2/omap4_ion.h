@@ -24,7 +24,7 @@
 #define PHYS_ADDR_SMC_SIZE	(SZ_1M * 3)
 #define PHYS_ADDR_SMC_MEM	(0x80000000 + SZ_1G - PHYS_ADDR_SMC_SIZE)
 
-#ifdef CONFIG_ION_OMAP
+#if defined(CONFIG_ION_OMAP) || defined(CONFIG_ION_OMAP_MODULE)
 void omap4_ion_init(void);
 void omap4_register_ion(void);
 #else
