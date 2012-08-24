@@ -104,10 +104,12 @@ void radeon_ttm_placement_from_domain(struct radeon_bo *rbo, u32 domain)
 
 int radeon_bo_create(struct radeon_device *rdev,
 		     unsigned long size, int byte_align, bool kernel, u32 domain,
-		     struct radeon_bo **bo_ptr)
+		     struct dma_buf_attachment *attach, struct radeon_bo **bo_ptr)
 {
 	struct radeon_bo *bo;
 	enum ttm_bo_type type;
+	struct sg_table *sg = NULL;
+	struct reservation_object *resv = NULL;
 	unsigned long page_align = roundup(byte_align, PAGE_SIZE) >> PAGE_SHIFT;
 	unsigned long max_size = 0;
 	size_t acc_size;
@@ -115,22 +117,28 @@ int radeon_bo_create(struct radeon_device *rdev,
 
 	size = ALIGN(size, PAGE_SIZE);
 
-	if (unlikely(rdev->mman.bdev.dev_mapping == NULL)) {
-		rdev->mman.bdev.dev_mapping = rdev->ddev->dev_mapping;
-	}
+	rdev->mman.bdev.dev_mapping = rdev->ddev->dev_mapping;
+	*bo_ptr = NULL;
+
 	if (kernel) {
 		type = ttm_bo_type_kernel;
+	} else if (attach) {
+		sg = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
+		if (IS_ERR(sg))
+			return PTR_ERR(sg);
+		resv = attach->dmabuf->resv;
+		type = ttm_bo_type_sg;
 	} else {
 		type = ttm_bo_type_device;
 	}
-	*bo_ptr = NULL;
 
 	/* maximun bo size is the minimun btw visible vram and gtt size */
 	max_size = min(rdev->mc.visible_vram_size, rdev->mc.gtt_size);
 	if ((page_align << PAGE_SHIFT) >= max_size) {
 		printk(KERN_WARNING "%s:%d alloc size %ldM bigger than %ldMb limit\n",
 			__func__, __LINE__, page_align  >> (20 - PAGE_SHIFT), max_size >> 20);
-		return -ENOMEM;
+		r = -ENOMEM;
+		goto fail;
 	}
 
 	acc_size = ttm_bo_dma_acc_size(&rdev->mman.bdev, size,
@@ -138,12 +146,14 @@ int radeon_bo_create(struct radeon_device *rdev,
 
 retry:
 	bo = kzalloc(sizeof(struct radeon_bo), GFP_KERNEL);
-	if (bo == NULL)
-		return -ENOMEM;
+	if (bo == NULL) {
+		r = -ENOMEM;
+		goto fail;
+	}
 	r = drm_gem_object_init(rdev->ddev, &bo->gem_base, size);
 	if (unlikely(r)) {
 		kfree(bo);
-		return r;
+		goto fail;
 	}
 	bo->rdev = rdev;
 	bo->gem_base.driver_private = NULL;
@@ -155,8 +165,8 @@ retry:
 	mutex_lock(&rdev->vram_mutex);
 	r = ttm_bo_init(&rdev->mman.bdev, &bo->tbo, size, type,
 			&bo->placement, page_align, 0, !kernel, NULL,
-			acc_size, NULL, &radeon_ttm_bo_destroy);
-	mutex_unlock(&rdev->vram_mutex);
+			acc_size, sg, resv, &radeon_ttm_bo_destroy);
+	up_read(&rdev->pm.mclk_lock);
 	if (unlikely(r != 0)) {
 		if (r != -ERESTARTSYS) {
 			if (domain == RADEON_GEM_DOMAIN_VRAM) {
@@ -167,13 +177,18 @@ retry:
 				"object_init failed for (%lu, 0x%08X)\n",
 				size, domain);
 		}
-		return r;
+		goto fail;
 	}
 	*bo_ptr = bo;
 
 	trace_radeon_bo_create(bo);
 
 	return 0;
+
+fail:
+	if (sg)
+		dma_buf_unmap_attachment(attach, sg, DMA_BIDIRECTIONAL);
+	return r;
 }
 
 int radeon_bo_kmap(struct radeon_bo *bo, void **ptr)

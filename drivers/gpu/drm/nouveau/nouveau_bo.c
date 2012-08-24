@@ -89,21 +89,30 @@ nouveau_bo_fixup_align(struct nouveau_bo *nvbo, u32 flags,
 int
 nouveau_bo_new(struct drm_device *dev, int size, int align,
 	       uint32_t flags, uint32_t tile_mode, uint32_t tile_flags,
-	       struct sg_table *sg,
+	       struct dma_buf_attachment *attach,
 	       struct nouveau_bo **pnvbo)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct nouveau_bo *nvbo;
+	struct reservation_object *resv = NULL;
 	size_t acc_size;
+	struct sg_table *sg = NULL;
 	int ret;
 	int type = ttm_bo_type_device;
 
-	if (sg)
+	if (attach) {
 		type = ttm_bo_type_sg;
-
+		sg = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
+		if (IS_ERR(sg))
+			return PTR_ERR(sg);
+		resv = attach->dmabuf->resv;
+	}
 	nvbo = kzalloc(sizeof(struct nouveau_bo), GFP_KERNEL);
+
+	ret = -ENOMEM;
 	if (!nvbo)
-		return -ENOMEM;
+		goto fail;
+
 	INIT_LIST_HEAD(&nvbo->head);
 	INIT_LIST_HEAD(&nvbo->entry);
 	INIT_LIST_HEAD(&nvbo->vma_list);
@@ -127,14 +136,19 @@ nouveau_bo_new(struct drm_device *dev, int size, int align,
 	ret = ttm_bo_init(&dev_priv->ttm.bdev, &nvbo->bo, size,
 			  type, &nvbo->placement,
 			  align >> PAGE_SHIFT, 0, false, NULL, acc_size, sg,
-			  nouveau_bo_del_ttm);
+			  resv, nouveau_bo_del_ttm);
 	if (ret) {
 		/* ttm will call nouveau_bo_del_ttm if it fails.. */
-		return ret;
+		goto fail;
 	}
 
 	*pnvbo = nvbo;
 	return 0;
+
+fail:
+	if (sg)
+		dma_buf_unmap_attachment(attach, sg, DMA_BIDIRECTIONAL);
+	return ret;
 }
 
 static void

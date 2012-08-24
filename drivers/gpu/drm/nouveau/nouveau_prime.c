@@ -52,7 +52,7 @@ struct dma_buf_ops nouveau_dmabuf_ops =  {
 static int
 nouveau_prime_new(struct drm_device *dev,
 		  size_t size,
-		  struct sg_table *sg,
+		  struct dma_buf_attachment *attach,
 		  struct nouveau_bo **pnvbo)
 {
 	struct nouveau_bo *nvbo;
@@ -62,7 +62,7 @@ nouveau_prime_new(struct drm_device *dev,
 	flags = TTM_PL_FLAG_TT;
 
 	ret = nouveau_bo_new(dev, size, 0, flags, 0, 0,
-			     sg, pnvbo);
+			     attach, pnvbo);
 	if (ret)
 		return ret;
 	nvbo = *pnvbo;
@@ -104,7 +104,6 @@ struct drm_gem_object *nouveau_gem_prime_import(struct drm_device *dev,
 				struct dma_buf *dma_buf)
 {
 	struct dma_buf_attachment *attach;
-	struct sg_table *sg;
 	struct nouveau_bo *nvbo;
 	int ret;
 
@@ -113,22 +112,14 @@ struct drm_gem_object *nouveau_gem_prime_import(struct drm_device *dev,
 	if (IS_ERR(attach))
 		return ERR_PTR(PTR_ERR(attach));
 
-	sg = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
-	if (IS_ERR(sg)) {
-		ret = PTR_ERR(sg);
-		goto fail_detach;
-	}
-
-	ret = nouveau_prime_new(dev, dma_buf->size, sg, &nvbo);
+	ret = nouveau_prime_new(dev, dma_buf->size, attach, &nvbo);
 	if (ret)
-		goto fail_unmap;
+		goto fail_detach;
 
 	nvbo->gem->import_attach = attach;
 
 	return nvbo->gem;
 
-fail_unmap:
-	dma_buf_unmap_attachment(attach, sg, DMA_BIDIRECTIONAL);
 fail_detach:
 	dma_buf_detach(dma_buf, attach);
 	return ERR_PTR(ret);

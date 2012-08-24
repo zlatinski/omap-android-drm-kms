@@ -141,7 +141,7 @@ const static struct dma_buf_ops radeon_dmabuf_ops =  {
 
 static int radeon_prime_create(struct drm_device *dev,
 			       size_t size,
-			       struct sg_table *sg,
+			       struct dma_buf_attachment *attach,
 			       struct radeon_bo **pbo)
 {
 	struct radeon_device *rdev = dev->dev_private;
@@ -149,7 +149,7 @@ static int radeon_prime_create(struct drm_device *dev,
 	int ret;
 
 	ret = radeon_bo_create(rdev, size, PAGE_SIZE, false,
-			       RADEON_GEM_DOMAIN_GTT, sg, pbo);
+			       RADEON_GEM_DOMAIN_GTT, attach, pbo);
 	if (ret)
 		return ret;
 	bo = *pbo;
@@ -187,7 +187,6 @@ struct drm_gem_object *radeon_gem_prime_import(struct drm_device *dev,
 					       struct dma_buf *dma_buf)
 {
 	struct dma_buf_attachment *attach;
-	struct sg_table *sg;
 	struct radeon_bo *bo;
 	int ret;
 
@@ -204,22 +203,14 @@ struct drm_gem_object *radeon_gem_prime_import(struct drm_device *dev,
 	if (IS_ERR(attach))
 		return ERR_CAST(attach);
 
-	sg = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
-	if (IS_ERR(sg)) {
-		ret = PTR_ERR(sg);
-		goto fail_detach;
-	}
-
-	ret = radeon_prime_create(dev, dma_buf->size, sg, &bo);
+	ret = radeon_prime_create(dev, dma_buf->size, attach, &bo);
 	if (ret)
-		goto fail_unmap;
+		goto fail_detach;
 
 	bo->gem_base.import_attach = attach;
 
 	return &bo->gem_base;
 
-fail_unmap:
-	dma_buf_unmap_attachment(attach, sg, DMA_BIDIRECTIONAL);
 fail_detach:
 	dma_buf_detach(dma_buf, attach);
 	return ERR_PTR(ret);
