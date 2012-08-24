@@ -94,7 +94,7 @@ struct dma_buf *nouveau_gem_prime_export(struct drm_device *dev,
 	if (ret)
 		return ERR_PTR(-EINVAL);
 
-	buf = dma_buf_export(nvbo, &nouveau_dmabuf_ops, obj->size, flags);
+	buf = dma_buf_export(nvbo, &nouveau_dmabuf_ops, obj->size, flags, nvbo->bo.resv);
 	if (IS_ERR(buf))
 		nouveau_bo_unpin(nvbo);
 	return buf;
