@@ -214,7 +214,8 @@ int ttm_bo_del_from_lru(struct ttm_buffer_object *bo)
 
 int ttm_bo_reserve_locked(struct ttm_buffer_object *bo,
 			  bool interruptible,
-			  bool no_wait, bool use_sequence, uint32_t sequence)
+			  bool no_wait, bool use_ticket,
+			  struct reservation_ticket *ticket)
 {
 	struct ttm_bo_global *glob = bo->glob;
 	int ret;
@@ -223,17 +224,17 @@ int ttm_bo_reserve_locked(struct ttm_buffer_object *bo,
 		/**
 		 * Deadlock avoidance for multi-bo reserving.
 		 */
-		if (use_sequence && bo->seq_valid) {
+		if (use_ticket && bo->seq_valid) {
 			/**
 			 * We've already reserved this one.
 			 */
-			if (unlikely(sequence == bo->val_seq))
+			if (unlikely(ticket->seqno == bo->val_seq))
 				return -EDEADLK;
 			/**
 			 * Already reserved by a thread that will not back
 			 * off for us. We need to back off.
 			 */
-			if (unlikely(sequence - bo->val_seq < (1 << 31)))
+			if (unlikely(ticket->seqno - bo->val_seq < (1ULL << 63)))
 				return -EAGAIN;
 		}
 
@@ -248,16 +249,16 @@ int ttm_bo_reserve_locked(struct ttm_buffer_object *bo,
 			return ret;
 	}
 
-	if (use_sequence) {
+	if (use_ticket) {
 		/**
 		 * Wake up waiters that may need to recheck for deadlock,
 		 * if we decreased the sequence number.
 		 */
-		if (unlikely((bo->val_seq - sequence < (1 << 31))
+		if (unlikely((bo->val_seq - ticket->seqno < (1ULL << 63))
 			     || !bo->seq_valid))
 			wake_up_all(&bo->event_queue);
 
-		bo->val_seq = sequence;
+		bo->val_seq = ticket->seqno;
 		bo->seq_valid = true;
 	} else {
 		bo->seq_valid = false;
@@ -281,15 +282,16 @@ void ttm_bo_list_ref_sub(struct ttm_buffer_object *bo, int count,
 
 int ttm_bo_reserve(struct ttm_buffer_object *bo,
 		   bool interruptible,
-		   bool no_wait, bool use_sequence, uint32_t sequence)
+		   bool no_wait, bool use_ticket,
+		   struct reservation_ticket *ticket)
 {
 	struct ttm_bo_global *glob = bo->glob;
 	int put_count = 0;
 	int ret;
 
 	spin_lock(&glob->lru_lock);
-	ret = ttm_bo_reserve_locked(bo, interruptible, no_wait, use_sequence,
-				    sequence);
+	ret = ttm_bo_reserve_locked(bo, interruptible, no_wait, use_ticket,
+				    ticket);
 	if (likely(ret == 0))
 		put_count = ttm_bo_del_from_lru(bo);
 	spin_unlock(&glob->lru_lock);
@@ -315,6 +317,21 @@ void ttm_bo_unreserve(struct ttm_buffer_object *bo)
 	spin_unlock(&glob->lru_lock);
 }
 EXPORT_SYMBOL(ttm_bo_unreserve);
+
+void ttm_bo_unreserve_ticket_locked(struct ttm_buffer_object *bo, struct reservation_ticket *ticket)
+{
+	ttm_bo_unreserve_locked(bo);
+}
+
+void ttm_bo_unreserve_ticket(struct ttm_buffer_object *bo, struct reservation_ticket *ticket)
+{
+	struct ttm_bo_global *glob = bo->glob;
+
+	spin_lock(&glob->lru_lock);
+	ttm_bo_unreserve_locked(bo);
+	spin_unlock(&glob->lru_lock);
+}
+EXPORT_SYMBOL(ttm_bo_unreserve_ticket);
 
 /*
  * Call bo->mutex locked.

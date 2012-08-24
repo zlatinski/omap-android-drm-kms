@@ -233,7 +233,7 @@ struct ttm_buffer_object {
 	struct list_head ddestroy;
 	struct list_head swap;
 	struct list_head io_reserve_lru;
-	uint32_t val_seq;
+	uint64_t val_seq;
 	bool seq_valid;
 
 	/**

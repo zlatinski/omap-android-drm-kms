@@ -1106,6 +1106,7 @@ int vmw_execbuf_process(struct drm_file *file_priv,
 {
 	struct vmw_sw_context *sw_context = &dev_priv->ctx;
 	struct vmw_fence_obj *fence = NULL;
+	struct reservation_ticket ticket;
 	uint32_t handle;
 	void *cmd;
 	int ret;
@@ -1153,7 +1154,7 @@ int vmw_execbuf_process(struct drm_file *file_priv,
 	if (unlikely(ret != 0))
 		goto out_err;
 
-	ret = ttm_eu_reserve_buffers(&sw_context->validate_nodes);
+	ret = ttm_eu_reserve_buffers(&ticket, &sw_context->validate_nodes);
 	if (unlikely(ret != 0))
 		goto out_err;
 
@@ -1194,7 +1195,7 @@ int vmw_execbuf_process(struct drm_file *file_priv,
 	if (ret != 0)
 		DRM_ERROR("Fence submission error. Syncing.\n");
 
-	ttm_eu_fence_buffer_objects(&sw_context->validate_nodes,
+	ttm_eu_fence_buffer_objects(&ticket, &sw_context->validate_nodes,
 				    (void *) fence);
 
 	vmw_clear_validations(sw_context);
@@ -1216,7 +1217,7 @@ out_err:
 	vmw_free_relocations(sw_context);
 out_throttle:
 	vmw_query_switch_backoff(sw_context);
-	ttm_eu_backoff_reservation(&sw_context->validate_nodes);
+	ttm_eu_backoff_reservation(&ticket, &sw_context->validate_nodes);
 	vmw_clear_validations(sw_context);
 out_unlock:
 	mutex_unlock(&dev_priv->cmdbuf_mutex);
@@ -1270,6 +1271,7 @@ void vmw_execbuf_release_pinned_bo(struct vmw_private *dev_priv,
 	int ret = 0;
 	struct list_head validate_list;
 	struct ttm_validate_buffer pinned_val, query_val;
+	struct reservation_ticket ticket;
 	struct vmw_fence_obj *fence;
 
 	mutex_lock(&dev_priv->cmdbuf_mutex);
@@ -1289,7 +1291,7 @@ void vmw_execbuf_release_pinned_bo(struct vmw_private *dev_priv,
 	list_add_tail(&query_val.head, &validate_list);
 
 	do {
-		ret = ttm_eu_reserve_buffers(&validate_list);
+		ret = ttm_eu_reserve_buffers(&ticket, &validate_list);
 	} while (ret == -ERESTARTSYS);
 
 	if (unlikely(ret != 0)) {
@@ -1308,7 +1310,7 @@ void vmw_execbuf_release_pinned_bo(struct vmw_private *dev_priv,
 	dev_priv->dummy_query_bo_pinned = false;
 
 	(void) vmw_execbuf_fence_commands(NULL, dev_priv, &fence, NULL);
-	ttm_eu_fence_buffer_objects(&validate_list, (void *) fence);
+	ttm_eu_fence_buffer_objects(&ticket, &validate_list, (void *) fence);
 
 	ttm_bo_unref(&query_val.bo);
 	ttm_bo_unref(&pinned_val.bo);
@@ -1319,7 +1321,7 @@ out_unlock:
 	return;
 
 out_no_emit:
-	ttm_eu_backoff_reservation(&validate_list);
+	ttm_eu_backoff_reservation(&ticket, &validate_list);
 out_no_reserve:
 	ttm_bo_unref(&query_val.bo);
 	ttm_bo_unref(&pinned_val.bo);

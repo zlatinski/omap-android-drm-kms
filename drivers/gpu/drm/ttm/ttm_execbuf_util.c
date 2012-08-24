@@ -32,7 +32,8 @@
 #include <linux/sched.h>
 #include <linux/module.h>
 
-static void ttm_eu_backoff_reservation_locked(struct list_head *list)
+static void ttm_eu_backoff_reservation_locked(struct list_head *list,
+					      struct reservation_ticket *ticket)
 {
 	struct ttm_validate_buffer *entry;
 
@@ -41,15 +42,17 @@ static void ttm_eu_backoff_reservation_locked(struct list_head *list)
 		if (!entry->reserved)
 			continue;
 
+		entry->reserved = false;
 		if (entry->removed) {
-			ttm_bo_add_to_lru(bo);
+			ttm_bo_unreserve_ticket_locked(bo, ticket);
 			entry->removed = false;
 
+		} else {
+			atomic_set(&bo->reserved, 0);
+			wake_up_all(&bo->event_queue);
 		}
-		entry->reserved = false;
-		atomic_set(&bo->reserved, 0);
-		wake_up_all(&bo->event_queue);
 	}
+	reservation_ticket_fini(ticket);
 }
 
 static void ttm_eu_del_from_lru_locked(struct list_head *list)
@@ -92,13 +95,12 @@ static int ttm_eu_wait_unreserved_locked(struct list_head *list,
 	spin_unlock(&glob->lru_lock);
 	ret = ttm_bo_wait_unreserved(bo, true);
 	spin_lock(&glob->lru_lock);
-	if (unlikely(ret != 0))
-		ttm_eu_backoff_reservation_locked(list);
 	return ret;
 }
 
 
-void ttm_eu_backoff_reservation(struct list_head *list)
+void ttm_eu_backoff_reservation(struct reservation_ticket *ticket,
+				struct list_head *list)
 {
 	struct ttm_validate_buffer *entry;
 	struct ttm_bo_global *glob;
@@ -109,7 +111,7 @@ void ttm_eu_backoff_reservation(struct list_head *list)
 	entry = list_first_entry(list, struct ttm_validate_buffer, head);
 	glob = entry->bo->glob;
 	spin_lock(&glob->lru_lock);
-	ttm_eu_backoff_reservation_locked(list);
+	ttm_eu_backoff_reservation_locked(list, ticket);
 	spin_unlock(&glob->lru_lock);
 }
 EXPORT_SYMBOL(ttm_eu_backoff_reservation);
@@ -126,12 +128,12 @@ EXPORT_SYMBOL(ttm_eu_backoff_reservation);
  * buffers in different orders.
  */
 
-int ttm_eu_reserve_buffers(struct list_head *list)
+int ttm_eu_reserve_buffers(struct reservation_ticket *ticket,
+			   struct list_head *list)
 {
 	struct ttm_bo_global *glob;
 	struct ttm_validate_buffer *entry;
 	int ret;
-	uint32_t val_seq;
 
 	if (list_empty(list))
 		return 0;
@@ -147,26 +149,27 @@ int ttm_eu_reserve_buffers(struct list_head *list)
 
 retry:
 	spin_lock(&glob->lru_lock);
-	val_seq = entry->bo->bdev->val_seq++;
+	reservation_ticket_init(ticket);
 
 	list_for_each_entry(entry, list, head) {
 		struct ttm_buffer_object *bo = entry->bo;
 
 retry_this_bo:
-		ret = ttm_bo_reserve_locked(bo, true, true, true, val_seq);
+		ret = ttm_bo_reserve_locked(bo, true, true, true, ticket);
 		switch (ret) {
 		case 0:
 			break;
 		case -EBUSY:
 			ret = ttm_eu_wait_unreserved_locked(list, bo);
 			if (unlikely(ret != 0)) {
+				ttm_eu_backoff_reservation_locked(list, ticket);
 				spin_unlock(&glob->lru_lock);
 				ttm_eu_list_ref_sub(list);
 				return ret;
 			}
 			goto retry_this_bo;
 		case -EAGAIN:
-			ttm_eu_backoff_reservation_locked(list);
+			ttm_eu_backoff_reservation_locked(list, ticket);
 			spin_unlock(&glob->lru_lock);
 			ttm_eu_list_ref_sub(list);
 			ret = ttm_bo_wait_unreserved(bo, true);
@@ -174,7 +177,7 @@ retry_this_bo:
 				return ret;
 			goto retry;
 		default:
-			ttm_eu_backoff_reservation_locked(list);
+			ttm_eu_backoff_reservation_locked(list, ticket);
 			spin_unlock(&glob->lru_lock);
 			ttm_eu_list_ref_sub(list);
 			return ret;
@@ -191,7 +194,8 @@ retry_this_bo:
 }
 EXPORT_SYMBOL(ttm_eu_reserve_buffers);
 
-void ttm_eu_fence_buffer_objects(struct list_head *list, void *sync_obj)
+void ttm_eu_fence_buffer_objects(struct reservation_ticket *ticket,
+				 struct list_head *list, void *sync_obj)
 {
 	struct ttm_validate_buffer *entry;
 	struct ttm_buffer_object *bo;
@@ -213,10 +217,11 @@ void ttm_eu_fence_buffer_objects(struct list_head *list, void *sync_obj)
 		bo = entry->bo;
 		entry->old_sync_obj = bo->sync_obj;
 		bo->sync_obj = driver->sync_obj_ref(sync_obj);
-		ttm_bo_unreserve_locked(bo);
+		ttm_bo_unreserve_ticket_locked(bo, ticket);
 		entry->reserved = false;
 	}
 	spin_unlock(&glob->lru_lock);
+	reservation_ticket_fini(ticket);
 
 	list_for_each_entry(entry, list, head) {
 		if (entry->old_sync_obj)

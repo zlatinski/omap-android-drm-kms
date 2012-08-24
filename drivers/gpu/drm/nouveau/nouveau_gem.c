@@ -275,10 +275,12 @@ struct validate_op {
 	struct list_head vram_list;
 	struct list_head gart_list;
 	struct list_head both_list;
+	struct reservation_ticket ticket;
 };
 
 static void
-validate_fini_list(struct list_head *list, struct nouveau_fence *fence)
+validate_fini_list(struct list_head *list, struct nouveau_fence *fence,
+		   struct reservation_ticket *ticket)
 {
 	struct list_head *entry, *tmp;
 	struct nouveau_bo *nvbo;
@@ -295,7 +297,7 @@ validate_fini_list(struct list_head *list, struct nouveau_fence *fence)
 
 		list_del(&nvbo->entry);
 		nvbo->reserved_by = NULL;
-		ttm_bo_unreserve(&nvbo->bo);
+		ttm_bo_unreserve_ticket(&nvbo->bo, ticket);
 		drm_gem_object_unreference_unlocked(nvbo->gem);
 	}
 }
@@ -303,9 +305,10 @@ validate_fini_list(struct list_head *list, struct nouveau_fence *fence)
 static void
 validate_fini(struct validate_op *op, struct nouveau_fence* fence)
 {
-	validate_fini_list(&op->vram_list, fence);
-	validate_fini_list(&op->gart_list, fence);
-	validate_fini_list(&op->both_list, fence);
+	validate_fini_list(&op->vram_list, fence, &op->ticket);
+	validate_fini_list(&op->gart_list, fence, &op->ticket);
+	validate_fini_list(&op->both_list, fence, &op->ticket);
+	reservation_ticket_fini(&op->ticket);
 }
 
 static int
@@ -313,14 +316,13 @@ validate_init(struct nouveau_channel *chan, struct drm_file *file_priv,
 	      struct drm_nouveau_gem_pushbuf_bo *pbbo,
 	      int nr_buffers, struct validate_op *op)
 {
-	struct drm_device *dev = chan->dev;
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
-	uint32_t sequence;
+	struct drm_device *dev = chan->drm->dev;
+	struct nouveau_drm *drm = nouveau_drm(dev);
 	int trycnt = 0;
 	int ret, i;
 
-	sequence = atomic_add_return(1, &dev_priv->ttm.validate_sequence);
 retry:
+	reservation_ticket_init(&op->ticket);
 	if (++trycnt > 100000) {
 		NV_ERROR(dev, "%s failed and gave up.\n", __func__);
 		return -EINVAL;
@@ -346,7 +348,7 @@ retry:
 			return -EINVAL;
 		}
 
-		ret = ttm_bo_reserve(&nvbo->bo, true, false, true, sequence);
+		ret = ttm_bo_reserve(&nvbo->bo, true, false, true, &op->ticket);
 		if (ret) {
 			validate_fini(op, NULL);
 			if (unlikely(ret == -EAGAIN))

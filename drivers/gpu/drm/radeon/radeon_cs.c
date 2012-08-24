@@ -88,7 +88,7 @@ int radeon_cs_parser_relocs(struct radeon_cs_parser *p)
 		} else
 			p->relocs[i].handle = 0;
 	}
-	return radeon_bo_list_validate(&p->validated);
+	return radeon_bo_list_validate(&p->ticket, &p->validated);
 }
 
 static int radeon_cs_get_ring(struct radeon_cs_parser *p, u32 ring, s32 priority)
@@ -308,12 +308,16 @@ static void radeon_cs_parser_fini(struct radeon_cs_parser *parser, int error)
 {
 	unsigned i;
 
-
-	if (!error && parser->ib)
-		ttm_eu_fence_buffer_objects(&parser->validated,
-					    parser->ib->fence);
-	else
-		ttm_eu_backoff_reservation(&parser->validated);
+	if (!error) {
+		/* fence all bo va before ttm_eu_fence_buffer_objects so bo are still reserved */
+		radeon_bo_vm_fence_va(parser, parser->ib.fence);
+		ttm_eu_fence_buffer_objects(&parser->ticket,
+					    &parser->validated,
+					    parser->ib.fence);
+	} else {
+		ttm_eu_backoff_reservation(&parser->ticket,
+					   &parser->validated);
+	}
 
 	if (parser->relocs != NULL) {
 		for (i = 0; i < parser->nrelocs; i++) {

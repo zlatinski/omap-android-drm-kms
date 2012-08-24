@@ -858,6 +858,7 @@ struct radeon_cs_parser {
 	u32			cs_flags;
 	u32			ring;
 	s32			priority;
+	struct reservation_ticket ticket;
 };
 
 extern int radeon_cs_update_pages(struct radeon_cs_parser *p, int pg_idx);

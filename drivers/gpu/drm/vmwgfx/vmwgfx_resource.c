@@ -814,6 +814,7 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 {
 	struct vmw_resource *res = &srf->res;
 	struct list_head val_list;
+	struct reservation_ticket ticket;
 	struct ttm_validate_buffer val_buf;
 	uint32_t submit_size;
 	uint8_t *cmd;
@@ -834,7 +835,7 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 		INIT_LIST_HEAD(&val_list);
 		val_buf.bo = ttm_bo_reference(srf->backup);
 		list_add_tail(&val_buf.head, &val_list);
-		ret = ttm_eu_reserve_buffers(&val_list);
+		ret = ttm_eu_reserve_buffers(&ticket, &val_list);
 		if (unlikely(ret != 0))
 			goto out_no_reserve;
 
@@ -895,7 +896,7 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 
 		(void) vmw_execbuf_fence_commands(NULL, dev_priv,
 						  &fence, NULL);
-		ttm_eu_fence_buffer_objects(&val_list, fence);
+		ttm_eu_fence_buffer_objects(&ticket, &val_list, fence);
 		if (likely(fence != NULL))
 			vmw_fence_obj_unreference(&fence);
 		ttm_bo_unref(&val_buf.bo);
@@ -915,7 +916,7 @@ out_no_fifo:
 out_no_id:
 out_no_validate:
 	if (srf->backup)
-		ttm_eu_backoff_reservation(&val_list);
+		ttm_eu_backoff_reservation(&ticket, &val_list);
 out_no_reserve:
 	if (srf->backup)
 		ttm_bo_unref(&val_buf.bo);
@@ -936,6 +937,7 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 {
 	struct vmw_resource *res = &srf->res;
 	struct list_head val_list;
+	struct reservation_ticket ticket;
 	struct ttm_validate_buffer val_buf;
 	uint32_t submit_size;
 	uint8_t *cmd;
@@ -965,7 +967,7 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 	INIT_LIST_HEAD(&val_list);
 	val_buf.bo = ttm_bo_reference(srf->backup);
 	list_add_tail(&val_buf.head, &val_list);
-	ret = ttm_eu_reserve_buffers(&val_list);
+	ret = ttm_eu_reserve_buffers(&ticket, &val_list);
 	if (unlikely(ret != 0))
 		goto out_no_reserve;
 
@@ -1006,7 +1008,7 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 
 	(void) vmw_execbuf_fence_commands(NULL, dev_priv,
 					  &fence, NULL);
-	ttm_eu_fence_buffer_objects(&val_list, fence);
+	ttm_eu_fence_buffer_objects(&ticket, &val_list, fence);
 	if (likely(fence != NULL))
 		vmw_fence_obj_unreference(&fence);
 	ttm_bo_unref(&val_buf.bo);
@@ -1022,7 +1024,7 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 out_no_fifo:
 out_no_validate:
 	if (srf->backup)
-		ttm_eu_backoff_reservation(&val_list);
+		ttm_eu_backoff_reservation(&ticket, &val_list);
 out_no_reserve:
 	ttm_bo_unref(&val_buf.bo);
 	ttm_bo_unref(&srf->backup);

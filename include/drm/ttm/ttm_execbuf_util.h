@@ -33,6 +33,7 @@
 
 #include "ttm/ttm_bo_api.h"
 #include <linux/list.h>
+#include <linux/reservation.h>
 
 /**
  * struct ttm_validate_buffer
@@ -57,17 +58,20 @@ struct ttm_validate_buffer {
 /**
  * function ttm_eu_backoff_reservation
  *
+ * @ticket:   reservation_ticket from reserve call
  * @list:     thread private list of ttm_validate_buffer structs.
  *
  * Undoes all buffer validation reservations for bos pointed to by
  * the list entries.
  */
 
-extern void ttm_eu_backoff_reservation(struct list_head *list);
+extern void ttm_eu_backoff_reservation(struct reservation_ticket *ticket,
+				       struct list_head *list);
 
 /**
  * function ttm_eu_reserve_buffers
  *
+ * @ticket:  [out] reservation_ticket returned by call.
  * @list:    thread private list of ttm_validate_buffer structs.
  *
  * Tries to reserve bos pointed to by the list entries for validation.
@@ -90,11 +94,13 @@ extern void ttm_eu_backoff_reservation(struct list_head *list);
  * has failed.
  */
 
-extern int ttm_eu_reserve_buffers(struct list_head *list);
+extern int ttm_eu_reserve_buffers(struct reservation_ticket *ticket,
+				  struct list_head *list);
 
 /**
  * function ttm_eu_fence_buffer_objects.
  *
+ * @ticket:      reservation_ticket from reserve call
  * @list:        thread private list of ttm_validate_buffer structs.
  * @sync_obj:    The new sync object for the buffers.
  *
@@ -104,6 +110,7 @@ extern int ttm_eu_reserve_buffers(struct list_head *list);
  *
  */
 
-extern void ttm_eu_fence_buffer_objects(struct list_head *list, void *sync_obj);
+extern void ttm_eu_fence_buffer_objects(struct reservation_ticket *ticket,
+					struct list_head *list, void *sync_obj);
 
 #endif

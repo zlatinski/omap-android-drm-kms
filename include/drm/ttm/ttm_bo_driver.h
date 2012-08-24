@@ -38,6 +38,7 @@
 #include "linux/workqueue.h"
 #include "linux/fs.h"
 #include "linux/spinlock.h"
+#include "linux/reservation.h"
 
 struct ttm_backend;
 
@@ -782,7 +783,7 @@ extern void ttm_mem_io_unlock(struct ttm_mem_type_manager *man);
  * @bo: A pointer to a struct ttm_buffer_object.
  * @interruptible: Sleep interruptible if waiting.
  * @no_wait: Don't sleep while trying to reserve, rather return -EBUSY.
- * @use_sequence: If @bo is already reserved, Only sleep waiting for
+ * @use_ticket: If @bo is already reserved, Only sleep waiting for
  * it to become unreserved if @sequence < (@bo)->sequence.
  *
  * Locks a buffer object for validation. (Or prevents other processes from
@@ -832,7 +833,8 @@ extern void ttm_mem_io_unlock(struct ttm_mem_type_manager *man);
  */
 extern int ttm_bo_reserve(struct ttm_buffer_object *bo,
 			  bool interruptible,
-			  bool no_wait, bool use_sequence, uint32_t sequence);
+			  bool no_wait, bool use_ticket,
+			  struct reservation_ticket *ticket);
 
 
 /**
@@ -861,8 +863,8 @@ extern int ttm_bo_reserve(struct ttm_buffer_object *bo,
  */
 extern int ttm_bo_reserve_locked(struct ttm_buffer_object *bo,
 				 bool interruptible,
-				 bool no_wait, bool use_sequence,
-				 uint32_t sequence);
+				 bool no_wait, bool use_ticket,
+				 struct reservation_ticket *ticket);
 
 /**
  * ttm_bo_unreserve
@@ -874,6 +876,16 @@ extern int ttm_bo_reserve_locked(struct ttm_buffer_object *bo,
 extern void ttm_bo_unreserve(struct ttm_buffer_object *bo);
 
 /**
+ * ttm_bo_unreserve_ticket
+ * @bo: A pointer to a struct ttm_buffer_object.
+ * @ticket: reservation_ticket used for reserving
+ *
+ * Unreserve a previous reservation of @bo made with @ticket.
+ */
+extern void ttm_bo_unreserve_ticket(struct ttm_buffer_object *bo,
+				    struct reservation_ticket *ticket);
+
+/**
  * ttm_bo_unreserve_locked
  *
  * @bo: A pointer to a struct ttm_buffer_object.
@@ -882,6 +894,17 @@ extern void ttm_bo_unreserve(struct ttm_buffer_object *bo);
  * Needs to be called with struct ttm_bo_global::lru_lock held.
  */
 extern void ttm_bo_unreserve_locked(struct ttm_buffer_object *bo);
+
+/**
+ * ttm_bo_unreserve_ticket_locked
+ * @bo: A pointer to a struct ttm_buffer_object.
+ * @ticket: reservation_ticket used for reserving
+ *
+ * Unreserve a previous reservation of @bo made with @ticket.
+ * Needs to be called with struct ttm_bo_global::lru_lock held.
+ */
+extern void ttm_bo_unreserve_ticket_locked(struct ttm_buffer_object *bo,
+					   struct reservation_ticket *ticket);
 
 /**
  * ttm_bo_wait_unreserved
