@@ -433,7 +433,6 @@ static int ttm_buffer_object_transfer(struct ttm_buffer_object *bo,
 	 * TODO: Explicit member copy would probably be better here.
 	 */
 
-	init_waitqueue_head(&fbo->event_queue);
 	INIT_LIST_HEAD(&fbo->ddestroy);
 	INIT_LIST_HEAD(&fbo->lru);
 	INIT_LIST_HEAD(&fbo->swap);
@@ -445,6 +444,9 @@ static int ttm_buffer_object_transfer(struct ttm_buffer_object *bo,
 	kref_init(&fbo->kref);
 	fbo->destroy = &ttm_transfered_destroy;
 	fbo->acc_size = 0;
+	fbo->resv = &fbo->ttm_resv;
+	reservation_object_init(fbo->resv);
+	object_reserve(fbo->resv, false, true, NULL);
 
 	*new_obj = fbo;
 	return 0;

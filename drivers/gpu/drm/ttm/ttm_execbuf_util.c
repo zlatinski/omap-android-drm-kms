@@ -48,8 +48,7 @@ static void ttm_eu_backoff_reservation_locked(struct list_head *list,
 			entry->removed = false;
 
 		} else {
-			atomic_set(&bo->reserved, 0);
-			wake_up_all(&bo->event_queue);
+			object_unreserve(bo->resv, ticket);
 		}
 	}
 	reservation_ticket_fini(ticket);
