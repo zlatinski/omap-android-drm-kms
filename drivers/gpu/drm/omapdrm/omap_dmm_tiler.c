@@ -17,6 +17,7 @@
  */
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/export.h>
 #include <linux/platform_device.h> /* platform_device() */
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -533,6 +534,7 @@ dma_addr_t tiler_tsptr(struct tiler_block *block, uint32_t orient,
 			(p->x * geom[block->fmt].slot_w) + x,
 			(p->y * geom[block->fmt].slot_h) + y);
 }
+EXPORT_SYMBOL(tiler_tsptr);
 
 void tiler_align(enum tiler_fmt fmt, uint16_t *w, uint16_t *h)
 {

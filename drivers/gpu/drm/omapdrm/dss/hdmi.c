@@ -102,6 +102,7 @@ int hdmi_runtime_get(void)
 
 	return 0;
 }
+EXPORT_SYMBOL(hdmi_runtime_get);
 
 void hdmi_runtime_put(void)
 {
@@ -112,6 +113,7 @@ void hdmi_runtime_put(void)
 	r = pm_runtime_put_sync(&hdmi.pdev->dev);
 	WARN_ON(r < 0);
 }
+EXPORT_SYMBOL(hdmi_runtime_put);
 
 int hdmi_init_display(struct omap_dss_device *dssdev)
 {
@@ -420,8 +422,13 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 		}
 	}
 
+#if defined(CONFIG_DRM_OMAP_DISPLAY) || defined(CONFIG_DRM_OMAP_DISPLAY_MODULE)
+	omapdss_fb2dss_timings(&hdmi.ip_data.cfg.timings,
+					&dssdev->panel.timings);
+#else
 	omapfb_fb2dss_timings(&hdmi.ip_data.cfg.timings,
 					&dssdev->panel.timings);
+#endif
 
 	switch (hdmi.ip_data.cfg.deep_color) {
 	case HDMI_DEEP_COLOR_30BIT:
@@ -526,11 +533,13 @@ void omapdss_hdmi_register_hdcp_callbacks(void (*hdmi_start_frame_cb)(void),
 	hdmi.hdmi_start_frame_cb = hdmi_start_frame_cb;
 	hdmi.hdmi_power_on_cb = hdmi_power_on_cb;
 }
+EXPORT_SYMBOL(omapdss_hdmi_register_hdcp_callbacks);
 
 struct hdmi_ip_data *get_hdmi_ip_data(void)
 {
 	return &hdmi.ip_data;
 }
+EXPORT_SYMBOL(get_hdmi_ip_data);
 
 int omapdss_hdmi_set_deepcolor(struct omap_dss_device *dssdev, int val,
 		bool hdmi_restart)
@@ -611,13 +620,36 @@ int omapdss_hdmi_unregister_cec_callbacks(void)
 	hdmi.hdmi_cec_hpd = NULL;
 	return 0;
 }
+EXPORT_SYMBOL(omapdss_hdmi_unregister_cec_callbacks);
+
+#if defined(CONFIG_DRM_OMAP_DISPLAY) || defined(CONFIG_DRM_OMAP_DISPLAY_MODULE)
+static void omapdss_dss2fb_timings(struct omap_video_timings *dss_timings,
+                        struct fb_videomode *fb_timings)
+{
+        memset(fb_timings, 0, sizeof(*fb_timings));
+        fb_timings->xres = dss_timings->x_res;
+        fb_timings->yres = dss_timings->y_res;
+        fb_timings->pixclock = dss_timings->pixel_clock ?
+                                        KHZ2PICOS(dss_timings->pixel_clock) : 0;
+        fb_timings->right_margin = dss_timings->hfp;
+        fb_timings->left_margin = dss_timings->hbp;
+        fb_timings->hsync_len = dss_timings->hsw;
+        fb_timings->lower_margin = dss_timings->vfp;
+        fb_timings->upper_margin = dss_timings->vbp;
+        fb_timings->vsync_len = dss_timings->vsw;
+}
+#endif
 
 int omapdss_hdmi_display_check_timing(struct omap_dss_device *dssdev,
 					struct omap_video_timings *timings)
 {
 	struct fb_videomode t;
 
+#if defined(CONFIG_DRM_OMAP_DISPLAY) || defined(CONFIG_DRM_OMAP_DISPLAY_MODULE)
+	omapdss_dss2fb_timings(timings, &t);
+#else
 	omapfb_dss2fb_timings(timings, &t);
+#endif
 
 	/* also check interlaced timings */
 	if (!hdmi_set_timings(&t, true)) {
@@ -765,7 +797,11 @@ err0:
 void omapdss_hdmi_display_set_timing(struct omap_dss_device *dssdev)
 {
 	struct fb_videomode t;
+#if defined(CONFIG_DRM_OMAP_DISPLAY) || defined(CONFIG_DRM_OMAP_DISPLAY_MODULE)
+	omapdss_dss2fb_timings(&dssdev->panel.timings, &t);
+#else
 	omapfb_dss2fb_timings(&dssdev->panel.timings, &t);
+#endif
 	/* also check interlaced timings */
 	if (!hdmi_set_timings(&t, true)) {
 		t.yres *= 2;
@@ -790,6 +826,7 @@ void hdmi_dump_regs(struct seq_file *s)
 	hdmi_runtime_put();
 	mutex_unlock(&hdmi.lock);
 }
+EXPORT_SYMBOL(hdmi_dump_regs);
 
 int omapdss_hdmi_read_edid(u8 *buf, int len)
 {

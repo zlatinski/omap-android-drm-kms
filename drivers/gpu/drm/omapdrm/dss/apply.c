@@ -18,6 +18,7 @@
 #define DSS_SUBSYS_NAME "APPLY"
 
 #include <linux/kernel.h>
+#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/jiffies.h>
@@ -225,6 +226,7 @@ void dss_apply_init(void)
 		op->user_info = op->info;
 	}
 }
+EXPORT_SYMBOL(dss_apply_init);
 
 static bool ovl_manual_update(struct omap_overlay *ovl)
 {
@@ -909,6 +911,7 @@ void dss_mgr_start_update(struct omap_overlay_manager *mgr)
 
 	spin_unlock_irqrestore(&data_lock, flags);
 }
+EXPORT_SYMBOL(dss_mgr_start_update);
 
 static void dss_apply_irq_handler(void *data, u32 mask);
 
@@ -1472,6 +1475,7 @@ err:
 	mutex_unlock(&apply_lock);
 	return r;
 }
+EXPORT_SYMBOL(dss_mgr_enable);
 
 void dss_mgr_disable(struct omap_overlay_manager *mgr)
 {
@@ -1505,6 +1509,7 @@ void dss_mgr_disable(struct omap_overlay_manager *mgr)
 out:
 	mutex_unlock(&apply_lock);
 }
+EXPORT_SYMBOL(dss_mgr_disable);
 
 int dss_mgr_set_info(struct omap_overlay_manager *mgr,
 		struct omap_overlay_manager_info *info)

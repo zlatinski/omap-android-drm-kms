@@ -611,6 +611,7 @@ int omapdss_hdmi_unregister_cec_callbacks(void)
 	hdmi.hdmi_cec_hpd = NULL;
 	return 0;
 }
+EXPORT_SYMBOL(omapdss_hdmi_unregister_cec_callbacks);
 
 int omapdss_hdmi_display_check_timing(struct omap_dss_device *dssdev,
 					struct omap_video_timings *timings)

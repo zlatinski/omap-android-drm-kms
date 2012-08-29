@@ -338,16 +338,49 @@ err:
 	return r;
 }
 
+static hpd_irq_handler_t* hdmi_external_irq_handler;
+static void* hdmi_external_irq_handler_data;
+static DEFINE_SPINLOCK(manage_external_irq_handler_lock);
+
+int ti_hdmi_4xxx_install_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void* user_data)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+	hdmi_external_irq_handler_data = user_data;
+	hdmi_external_irq_handler = irq_handler;
+
+	spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_4xxx_install_external_hpd_irq_handler);
+
+int ti_hdmi_4xxx_uninstall_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+	hdmi_external_irq_handler_data = NULL;
+	hdmi_external_irq_handler = NULL;
+
+	spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_4xxx_uninstall_external_hpd_irq_handler);
+
 static irqreturn_t hpd_irq_handler(int irq, void *data)
 {
-#ifndef CONFIG_DRM_OMAP
 	struct hdmi_ip_data *ip_data = data;
 
+	if(hdmi_external_irq_handler)
+	{
+		hdmi_external_irq_handler(irq, ip_data,
+				hdmi_external_irq_handler_data);
+	}
+
 	hdmi_check_hpd_state(ip_data);
-#else
-	extern void omapdrm_hpd_change(void);
-	omapdrm_hpd_change();
-#endif
 
 	return IRQ_HANDLED;
 }
@@ -866,7 +899,12 @@ void hdmi_wp_video_init_format(struct hdmi_video_format *video_fmt,
 	if (param->timings.vmode & FB_VMODE_INTERLACED)
 		video_fmt->y_res /= 2;
 	video_fmt->x_res = param->timings.xres;
+
+#if defined(CONFIG_DRM_OMAP_DISPLAY) || defined(CONFIG_DRM_OMAP_DISPLAY_MODULE)
+	omapdss_fb2dss_timings(&param->timings, timings);
+#else
 	omapfb_fb2dss_timings(&param->timings, timings);
+#endif
 }
 
 void hdmi_wp_video_config_format(struct hdmi_ip_data *ip_data,

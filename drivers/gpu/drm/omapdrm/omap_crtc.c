@@ -417,7 +417,7 @@ static void omap_crtc_pre_apply(struct omap_drm_apply *apply)
 	}
 
 	dispc_mgr_setup(omap_crtc->channel, &omap_crtc->info);
-	dispc_mgr_set_timings(omap_crtc->channel,
+	dispc_mgr_set_lcd_timings(omap_crtc->channel,
 			&omap_crtc->timings);
 	dispc_mgr_enable(omap_crtc->channel, true);
 }

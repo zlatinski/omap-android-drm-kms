@@ -853,6 +853,7 @@ bool dss_has_feature(enum dss_feat_id id)
 
 	return false;
 }
+EXPORT_SYMBOL(dss_feat_get_hdmi_cec_offset);
 
 void dss_feat_get_reg_field(enum dss_feat_reg_field id, u8 *start, u8 *end)
 {

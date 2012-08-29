@@ -186,6 +186,7 @@ struct ion_heap *ion_carveout_heap_create(struct ion_platform_heap *heap_data)
 
 	return &carveout_heap->heap;
 }
+EXPORT_SYMBOL(ion_carveout_heap_create);
 
 void ion_carveout_heap_destroy(struct ion_heap *heap)
 {
@@ -196,3 +197,4 @@ void ion_carveout_heap_destroy(struct ion_heap *heap)
 	kfree(carveout_heap);
 	carveout_heap = NULL;
 }
+EXPORT_SYMBOL(ion_carveout_heap_destroy);
