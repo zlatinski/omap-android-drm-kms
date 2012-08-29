@@ -23,6 +23,7 @@
 #include <linux/rbtree.h>
 #include <linux/ion.h>
 #include <linux/miscdevice.h>
+#include <linux/export.h>
 
 struct ion_mapping;
 

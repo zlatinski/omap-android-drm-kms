@@ -872,6 +872,38 @@ static void hdmi_core_enable_interrupts(struct hdmi_ip_data *ip_data)
 	REG_FLD_MOD(core_sys_base, HDMI_CORE_A_APIINTMSK, 0x00, 7, 0);
 }
 
+static hpd_irq_handler_t* hdmi_external_irq_handler;
+static void* hdmi_external_irq_handler_data;
+static DEFINE_SPINLOCK(manage_external_irq_handler_lock);
+
+int ti_hdmi_5xxx_install_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void* user_data)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+	hdmi_external_irq_handler_data = user_data;
+	hdmi_external_irq_handler = irq_handler;
+
+	spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_5xxx_install_external_hpd_irq_handler);
+
+int ti_hdmi_5xxx_uninstall_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+	hdmi_external_irq_handler_data = NULL;
+	hdmi_external_irq_handler = NULL;
+
+	spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_5xxx_uninstall_external_hpd_irq_handler);
+
 int ti_hdmi_5xxx_irq_handler(struct hdmi_ip_data *ip_data)
 {
 	u32 val = 0, r = 0;
