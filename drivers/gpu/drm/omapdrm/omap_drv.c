@@ -620,7 +620,6 @@ static struct drm_driver omap_drm_driver = {
 		.irq_postinstall = omap_irq_postinstall,
 		.irq_uninstall = omap_irq_uninstall,
 		.irq_handler = omap_irq_handler,
-		.reclaim_buffers = drm_core_reclaim_buffers,
 #ifdef CONFIG_DEBUG_FS
 		.debugfs_init = omap_debugfs_init,
 		.debugfs_cleanup = omap_debugfs_cleanup,
