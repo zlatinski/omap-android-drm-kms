@@ -58,7 +58,10 @@ static struct cec_worker_data {
 
 static struct cec_t {
 	struct cec_rx_data rx_data;
+	struct miscdevice mdev;
 	struct switch_dev rx_switch;
+	struct miscdevice* p_mdev;
+	struct switch_dev* p_rx_switch;
 	struct mutex lock;/* Mutex for cec access */
 	struct hdmi_ip_data hdmi_data;
 	struct workqueue_struct *my_workq;
@@ -70,23 +73,44 @@ static struct cec_t {
 	int power_on;
 	int route_ui_cmds;
 	bool cec_rx_data_valid;
+	int (*hdmi_runtime_get)(void);
+	void (*hdmi_runtime_put)(void);
 } cec;
 
-static int cec_request_dss(void)
+static int cec_request_dss(
+		void (**hdmi_runtime_put)(void))
 {
-	return hdmi_runtime_get();
+	int (*hdmi_runtime_get)(void);
+
+	mutex_lock(&cec.lock);
+	*hdmi_runtime_put = cec.hdmi_runtime_put;
+	hdmi_runtime_get = cec.hdmi_runtime_get;
+	mutex_unlock(&cec.lock);
+
+	if(hdmi_runtime_get)
+	{
+		int ret = hdmi_runtime_get();
+		if(ret == 0)
+			return 0;
+	}
+
+	*hdmi_runtime_put = NULL;
+	return -1;
 }
 
-static void cec_release_dss(void)
+static void cec_release_dss(
+		void (*hdmi_runtime_put)(void))
 {
-	hdmi_runtime_put();
+	if(hdmi_runtime_put)
+		hdmi_runtime_put();
 }
 
 int cec_read_rx_cmd(struct cec_rx_data *rx_data)
 {
 	int r = 0;
+	void (*hdmi_runtime_put)(void) = NULL;
 
-	r = cec_request_dss();
+	r = cec_request_dss(&hdmi_runtime_put);
 	if (r)
 		return r;
 
@@ -94,7 +118,7 @@ int cec_read_rx_cmd(struct cec_rx_data *rx_data)
 	r = cec.hdmi_data.ops->cec_read_rx_cmd(&cec.hdmi_data, rx_data);
 	mutex_unlock(&cec.lock);
 
-	cec_release_dss();
+	cec_release_dss(hdmi_runtime_put);
 
 	return r;
 }
@@ -103,9 +127,10 @@ EXPORT_SYMBOL(cec_read_rx_cmd);
 int cec_transmit_cmd(struct cec_tx_data *data, int *cmd_acked)
 {
 	int r = -EINVAL;
+	void (*hdmi_runtime_put)(void) = NULL;
 
 	if (data) {
-		r = cec_request_dss();
+		r = cec_request_dss(&hdmi_runtime_put);
 		if (r)
 			goto error_exit;
 
@@ -114,7 +139,7 @@ int cec_transmit_cmd(struct cec_tx_data *data, int *cmd_acked)
 			cmd_acked);
 		mutex_unlock(&cec.lock);
 
-		cec_release_dss();
+		cec_release_dss(hdmi_runtime_put);
 	}
 
 error_exit:
@@ -128,6 +153,7 @@ static int cec_register_device(struct cec_dev *dev)
 	struct cec_tx_data tx_data;
 	int r;
 	int current_dev = 0;
+	void (*hdmi_runtime_put)(void) = NULL;
 
 	/*  1. Send an Ping command
 	2. If acked, return error
@@ -161,7 +187,7 @@ static int cec_register_device(struct cec_dev *dev)
 		pr_err("\nCould not Ping device\n");
 
 no_ping_required:
-	r = cec_request_dss();
+	r = cec_request_dss(&hdmi_runtime_put);
 	if (r)
 		return r;
 
@@ -207,7 +233,7 @@ no_ping_required:
 		goto err;
 	}
 err:
-	cec_release_dss();
+	cec_release_dss(hdmi_runtime_put);
 	return r;
 }
 
@@ -295,16 +321,15 @@ static const struct file_operations cec_fops = {
 	.unlocked_ioctl = cec_ioctl,
 };
 
-static struct miscdevice mdev;
-
 static void cec_rx_worker(struct work_struct *work)
 {
 	int r;
 	char rx_cmd;
+	void (*hdmi_runtime_put)(void) = NULL;
 
 	/*UI events should be sent to keyboard driver*/
 	if (cec.route_ui_cmds && cec.key_dev.key_event) {
-		r = cec_request_dss();
+		r = cec_request_dss(&hdmi_runtime_put);
 		if (r) {
 			pr_err("CEC no clocks\n");
 			return;
@@ -325,7 +350,7 @@ static void cec_rx_worker(struct work_struct *work)
 					false);
 		}
 		mutex_unlock(&cec.lock);
-		cec_release_dss();
+		cec_release_dss(hdmi_runtime_put);
 	}
 
 	/* It is still OK to send event to user space for UI commands also
@@ -369,10 +394,11 @@ static void cec_power_on_cb(int status)
 {
 	int r;
 	struct cec_dev dev;
+	void (*hdmi_runtime_put)(void) = NULL;
 
 	pr_debug("cec_power_on_cb ++\n");
 	if (status) {
-		r = cec_request_dss();
+		r = cec_request_dss(&hdmi_runtime_put);
 		if (r) {
 			pr_err("Error in cec power on:Clk req failed\n");
 			return;
@@ -385,7 +411,7 @@ static void cec_power_on_cb(int status)
 
 		mutex_unlock(&cec.lock);
 
-		cec_release_dss();
+		cec_release_dss(hdmi_runtime_put);
 		/* Auto register to the previously registerd id */
 		/* This is required incase of device suspend or
 		when HDMI is disabled/enabled without HPD in such
@@ -410,46 +436,95 @@ static void cec_power_on_cb(int status)
 
 	return;
 }
-static int __init cec_init(void)
+
+void cec_release_module_callbacks(void)
+{
+
+	if(cec.my_workq)
+	{
+		destroy_workqueue(cec.my_workq);
+		cec.my_workq = NULL;
+	}
+
+	if(cec.p_rx_switch)
+	{
+		switch_dev_unregister(&cec.rx_switch);
+		cec.p_rx_switch = NULL;
+	}
+
+	if(cec.p_mdev)
+	{
+		misc_deregister(&cec.mdev);
+		cec.p_mdev = NULL;
+	}
+
+	mutex_lock(&cec.lock);
+	cec.hdmi_runtime_put = NULL;
+	cec.hdmi_runtime_get = NULL;
+	mutex_unlock(&cec.lock);
+}
+EXPORT_SYMBOL(cec_release_module_callbacks);
+
+int cec_get_module_callbacks(
+		void* data,
+		int (*hdmi_runtime_get_cb)(void),
+		void (*hdmi_runtime_put_cb)(void),
+		void (**hdmi_cec_enable_cb)(int status),
+		void (**hdmi_cec_irq_cb)(void),
+		void (**hdmi_cec_hpd)(int phy_addr, int status))
 {
 	int r = -EFAULT;
+	struct hdmi_ip_data* hdmi_data = (struct hdmi_ip_data*)data;
 	pr_debug("cec_init() %u", jiffies_to_msecs(jiffies));
 
-	hdmi_get_ipdata(&cec.hdmi_data);
+	if(!hdmi_data || hdmi_runtime_get_cb || hdmi_runtime_put_cb)
+		return -EFAULT;
+
+	cec.hdmi_data = *hdmi_data;
 
 	if (!cec.hdmi_data.base_wp) {
 		pr_err("CEC: HDMI WP IOremap error\n");
 		return -EFAULT;
 	}
 
-	cec.hdmi_data.cec_offset = dss_feat_get_hdmi_cec_offset();
-
 	cec.cec_rx_data_valid = 0;
 	cec.power_on = 0;
-	/* Set it to unregisterd device id */
+	/* Set it to unregistered device id */
 	cec.device_id = CEC_UNREGISTERED_DEVICE;
-	mdev.minor = MISC_DYNAMIC_MINOR;
-	mdev.name = "cec";
-	mdev.mode = 0666;
-	mdev.fops = &cec_fops;
+	cec.mdev.minor = MISC_DYNAMIC_MINOR;
+	cec.mdev.name = "cec";
+	cec.mdev.mode = 0666;
+	cec.mdev.fops = &cec_fops;
 
-	if (misc_register(&mdev)) {
+	if (misc_register(&cec.mdev)) {
 		pr_err("CEC: Could not add character driver\n");
-		goto err_register;
+		goto error_cec_get_module_callbacks;
 	}
+
+	cec.p_mdev = &cec.mdev;
+
 	pr_debug("register call backs\n");
-	omapdss_hdmi_register_cec_callbacks(&cec_power_on_cb, &cec_irq_cb,
-		&cec_hpd_cb);
 	mutex_init(&cec.lock);
 	cec.switch_state = 0;
 	cec.rx_switch.name = "cec";
 	r = switch_dev_register(&cec.rx_switch);
 	if (r)
-		goto error_event;
+		goto error_cec_get_module_callbacks;
+
+	cec.p_rx_switch = &cec.rx_switch;
+
+	*hdmi_cec_enable_cb = &cec_power_on_cb;
+	*hdmi_cec_irq_cb = &cec_irq_cb;
+	*hdmi_cec_hpd = &cec_hpd_cb;
+
+	mutex_lock(&cec.lock);
+	cec.hdmi_runtime_get = hdmi_runtime_get_cb;
+	cec.hdmi_runtime_put = hdmi_runtime_put_cb;
+	mutex_unlock(&cec.lock);
 
 	cec.my_workq = create_singlethread_workqueue("cec");
 	if (!cec.my_workq)
-		goto error_work;
+		goto error_cec_get_module_callbacks;
 
 	INIT_DELAYED_WORK(&cec_work.dwork, cec_rx_worker);
 	r = cec_get_keyboard_handle(&cec.key_dev);
@@ -457,17 +532,21 @@ static int __init cec_init(void)
 		pr_err("Keyboard driver not present\n");
 
 	cec.route_ui_cmds = 0;
+
 	return 0;
 
-error_work:
-	switch_dev_unregister(&cec.rx_switch);
-error_event:
-	misc_deregister(&mdev);
-	mutex_destroy(&cec.lock);
-	omapdss_hdmi_unregister_cec_callbacks();
-err_register:
-	iounmap(cec.hdmi_data.base_wp);
+error_cec_get_module_callbacks:
+	cec_release_module_callbacks();
 	return r;
+}
+EXPORT_SYMBOL(cec_get_module_callbacks);
+
+static int __init cec_init(void)
+{
+	pr_debug("cec_init() %u", jiffies_to_msecs(jiffies));
+
+	mutex_init(&cec.lock);
+	return 0;
 }
 
 /*-----------------------------------------------------------------------------
@@ -478,13 +557,9 @@ static void __exit cec_exit(void)
 {
 	pr_debug("cec_exit() %u", jiffies_to_msecs(jiffies));
 
-	misc_deregister(&mdev);
-	switch_dev_unregister(&cec.rx_switch);
+	cec_release_module_callbacks();
+
 	mutex_destroy(&cec.lock);
-	destroy_workqueue(cec.my_workq);
-	omapdss_hdmi_unregister_cec_callbacks();
-	/* Unmap HDMI WP / DESHDCP */
-	iounmap(cec.hdmi_data.base_wp);
 }
 
 /*-----------------------------------------------------------------------------

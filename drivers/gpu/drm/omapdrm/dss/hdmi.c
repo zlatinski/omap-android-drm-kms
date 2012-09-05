@@ -375,7 +375,7 @@ static void hdmi_load_hdcp_keys(struct omap_dss_device *dssdev)
 {
 	DSSDBG("hdmi_load_hdcp_keys\n");
 	/* load the keys and reset the wrapper to populate the AKSV registers*/
-	if (hdmi.hdmi_power_on_cb()) {
+	if (hdmi.hdmi_power_on_cb && hdmi.hdmi_power_on_cb()) {
 		hdmi_ti_4xxx_set_wait_soft_reset(&hdmi.ip_data);
 		DSSINFO("HDMI_WRAPPER RESET DONE\n");
 	}
@@ -527,19 +527,10 @@ static void hdmi_power_off(struct omap_dss_device *dssdev)
 	hdmi.ip_data.cfg.deep_color = HDMI_DEEP_COLOR_24BIT;
 }
 
-void omapdss_hdmi_register_hdcp_callbacks(void (*hdmi_start_frame_cb)(void),
-				 bool (*hdmi_power_on_cb)(void))
-{
-	hdmi.hdmi_start_frame_cb = hdmi_start_frame_cb;
-	hdmi.hdmi_power_on_cb = hdmi_power_on_cb;
-}
-EXPORT_SYMBOL(omapdss_hdmi_register_hdcp_callbacks);
-
-struct hdmi_ip_data *get_hdmi_ip_data(void)
+static struct hdmi_ip_data *get_hdmi_ip_data(void)
 {
 	return &hdmi.ip_data;
 }
-EXPORT_SYMBOL(get_hdmi_ip_data);
 
 int omapdss_hdmi_set_deepcolor(struct omap_dss_device *dssdev, int val,
 		bool hdmi_restart)
@@ -594,33 +585,12 @@ int omapdss_hdmi_get_range(void)
 	return hdmi.ip_data.cfg.range;
 }
 
-int omapdss_hdmi_register_cec_callbacks(void (*hdmi_cec_enable_cb)(int status),
-					void (*hdmi_cec_irq_cb)(void),
-					void (*hdmi_cec_hpd)(int phy_addr,
-					int status))
-{
-	hdmi.hdmi_cec_enable_cb = hdmi_cec_enable_cb;
-	hdmi.hdmi_cec_irq_cb = hdmi_cec_irq_cb;
-	hdmi.hdmi_cec_hpd = hdmi_cec_hpd;
-	return 0;
-}
-EXPORT_SYMBOL(omapdss_hdmi_register_cec_callbacks);
-
 int hdmi_get_ipdata(struct hdmi_ip_data *ip_data)
 {
 	*ip_data = hdmi.ip_data;
 	return 0;
 }
 EXPORT_SYMBOL(hdmi_get_ipdata);
-
-int omapdss_hdmi_unregister_cec_callbacks(void)
-{
-	hdmi.hdmi_cec_enable_cb = NULL;
-	hdmi.hdmi_cec_irq_cb = NULL;
-	hdmi.hdmi_cec_hpd = NULL;
-	return 0;
-}
-EXPORT_SYMBOL(omapdss_hdmi_unregister_cec_callbacks);
 
 #if defined(CONFIG_DRM_OMAP_DISPLAY) || defined(CONFIG_DRM_OMAP_DISPLAY_MODULE)
 static void omapdss_dss2fb_timings(struct omap_video_timings *dss_timings,
@@ -1336,6 +1306,22 @@ static int omapdss_hdmihw_probe(struct platform_device *pdev)
 	hdmi.ip_data.pll_offset = HDMI_PLLCTRL;
 	hdmi.ip_data.phy_offset = HDMI_PHY;
 
+	hdmi.ip_data.cec_offset = dss_feat_get_hdmi_cec_offset();
+	cec_get_module_callbacks(
+			&hdmi.ip_data,
+			&hdmi_runtime_get,
+			&hdmi_runtime_put,
+			&hdmi.hdmi_cec_enable_cb,
+			&hdmi.hdmi_cec_irq_cb,
+			&hdmi.hdmi_cec_hpd);
+
+	hdcp_get_module_callbacks(
+			(void * (*)(void))&get_hdmi_ip_data,
+			&hdmi_runtime_get,
+			&hdmi_runtime_put,
+			&hdmi.hdmi_start_frame_cb,
+			&hdmi.hdmi_power_on_cb);
+
 	hdmi_panel_init();
 
 	if (hdmi_get_current_hpd())
@@ -1345,6 +1331,13 @@ static int omapdss_hdmihw_probe(struct platform_device *pdev)
 
 static int omapdss_hdmihw_remove(struct platform_device *pdev)
 {
+
+	if (hdmi.hdmi_irq > 0)
+		free_irq(hdmi.hdmi_irq, NULL);
+
+	cec_release_module_callbacks();
+	hdcp_release_module_callbacks();
+
 	hdmi_panel_exit();
 
 	pm_runtime_disable(&pdev->dev);

@@ -42,6 +42,9 @@ struct hdcp_data {
 	int hdcp_up_event;
 	int hdcp_down_event;
 	int hdcp_wait_re_entrance;
+	struct hdmi_ip_data* (*get_hdmi_ip_data)(void);
+	int (*hdmi_runtime_get)(void);
+	void (*hdmi_runtime_put)(void);
 };
 
 static struct hdcp_data *hdcp;
@@ -50,6 +53,52 @@ static void hdcp_work_queue(struct work_struct *work);
 
 static DECLARE_WAIT_QUEUE_HEAD(hdcp_up_wait_queue);
 static DECLARE_WAIT_QUEUE_HEAD(hdcp_down_wait_queue);
+
+static int hdcp_request_dss(
+		void (**hdmi_runtime_put)(void))
+{
+	int (*hdmi_runtime_get)(void);
+
+	if(!hdcp)
+		return -1;
+
+	mutex_lock(&hdcp->lock);
+	*hdmi_runtime_put = hdcp->hdmi_runtime_put;
+	hdmi_runtime_get = hdcp->hdmi_runtime_get;
+	mutex_unlock(&hdcp->lock);
+
+	if(hdmi_runtime_get)
+	{
+		int ret = hdmi_runtime_get();
+		if(ret == 0)
+			return 0;
+	}
+
+	*hdmi_runtime_put = NULL;
+	return -1;
+}
+
+static void hdcp_release_dss(
+		void (*hdmi_runtime_put)(void))
+{
+	if(hdmi_runtime_put)
+		hdmi_runtime_put();
+}
+
+static struct hdmi_ip_data* hdcp_get_hdmi_ip_data(void)
+{
+	struct hdmi_ip_data* ip_data = NULL;
+
+	if(hdcp)
+	{
+		mutex_lock(&hdcp->lock);
+		if(hdcp->get_hdmi_ip_data)
+			ip_data = hdcp->get_hdmi_ip_data();
+		mutex_unlock(&hdcp->lock);
+	}
+
+	return ip_data;
+}
 
 static int hdcp_step2_authenticate_repeater(int flags)
 {
@@ -74,16 +123,17 @@ static int hdcp_wq_start_authentication(void)
 	int status = 0;
 	struct hdmi_ip_data *ip_data;
 	unsigned long timeout;
+	void (*hdmi_runtime_put)(void) = NULL;
 
 	HDCP_DBG("hdcp_wq_start_authentication %ums\n",
 		jiffies_to_msecs(jiffies));
 
-	if (hdmi_runtime_get()) {
+	if (hdcp_request_dss(&hdmi_runtime_put)) {
 		HDCP_ERR("%s Error enabling clocks\n", __func__);
 		return -EINVAL;
 	}
 
-	ip_data = get_hdmi_ip_data();
+	ip_data = hdcp_get_hdmi_ip_data();
 	ip_data->ops->hdcp_enable(ip_data);
 
 	init_completion(&ip_data->ksvlist_arrived);
@@ -104,7 +154,7 @@ static int hdcp_wq_start_authentication(void)
 		}
 	}
 
-	hdmi_runtime_put();
+	hdcp_release_dss(hdmi_runtime_put);
 	return status;
 }
 
@@ -218,7 +268,7 @@ static long hdcp_query_status_ctl(uint32_t *status)
 
 	HDCP_DBG("hdcp_ioctl() - QUERY %u", jiffies_to_msecs(jiffies));
 
-	ip_data = get_hdmi_ip_data();
+	ip_data = hdcp_get_hdmi_ip_data();
 	if (!ip_data) {
 		HDCP_ERR("null pointer hit\n");
 		return -EINVAL;
@@ -399,12 +449,122 @@ static int hdcp_load_keys(void)
 	return ret;
 }
 
-
 static const struct file_operations hdcp_fops = {
 	.owner = THIS_MODULE,
 	.mmap = hdcp_mmap,
 	.unlocked_ioctl = hdcp_ioctl,
 };
+
+void hdcp_release_module_callbacks(void)
+{
+	if(!hdcp)
+		return;
+
+	if(hdcp->mdev)
+	{
+		misc_deregister(hdcp->mdev);
+		kfree(hdcp->mdev);
+		hdcp->mdev = NULL;
+	}
+
+	mutex_lock(&hdcp->lock);
+
+	if(hdcp->work)
+	{
+		kfree(hdcp->work);
+		hdcp->work = NULL;
+	}
+
+	if(hdcp->workqueue)
+	{
+		destroy_workqueue(hdcp->workqueue);
+		hdcp->workqueue = NULL;
+	}
+
+	if(hdcp->en_ctrl)
+	{
+		kfree(hdcp->en_ctrl);
+		hdcp->en_ctrl = NULL;
+	}
+
+	hdcp->get_hdmi_ip_data = NULL;
+	hdcp->hdmi_runtime_put = NULL;
+	hdcp->hdmi_runtime_get = NULL;
+
+	mutex_unlock(&hdcp->lock);
+}
+EXPORT_SYMBOL(hdcp_release_module_callbacks);
+
+int hdcp_get_module_callbacks(
+		void* (*get_hdmi_ip_data)(void),
+		int (*hdmi_runtime_get_cb)(void),
+		void (*hdmi_runtime_put_cb)(void),
+		void (**hdmi_start_frame_cb)(void),
+		bool (**hdmi_power_on_cb)(void))
+{
+	void (*hdmi_runtime_put)(void) = NULL;
+
+	if(!hdcp)
+		return -1;
+
+	*hdmi_start_frame_cb = &hdcp_start_frame_cb;
+	*hdmi_power_on_cb = &hdcp_3des_cb;
+
+	hdcp->get_hdmi_ip_data =
+			(struct hdmi_ip_data* (*)(void))get_hdmi_ip_data;
+	hdcp->hdmi_runtime_get = hdmi_runtime_get_cb;
+	hdcp->hdmi_runtime_put = hdmi_runtime_put_cb;
+
+	hdcp->workqueue = create_singlethread_workqueue("hdcp");
+	if (hdcp->workqueue == NULL) {
+		HDCP_ERR("Could not create HDCP workqueue\n");
+		goto err_hdcp_get_module_callbacks;
+	}
+
+	hdcp->work = kzalloc(sizeof(struct delayed_work), GFP_ATOMIC);
+	if (hdcp->work) {
+		INIT_DELAYED_WORK(hdcp->work, hdcp_work_queue);
+	} else {
+		HDCP_ERR("Could not allocate memory to create work\n");
+		goto err_hdcp_get_module_callbacks;
+	}
+
+	if (hdcp_request_dss(&hdmi_runtime_put)) {
+		HDCP_ERR("%s Error enabling clocks\n", __func__);
+		goto err_hdcp_get_module_callbacks;
+	}
+
+	hdcp_release_dss(hdmi_runtime_put);
+
+	hdcp->mdev = kzalloc(sizeof(struct miscdevice), GFP_KERNEL);
+	if (!hdcp->mdev) {
+		HDCP_ERR("Could not allocate misc device memory\n");
+		goto err_hdcp_get_module_callbacks;
+	}
+
+	hdcp->mdev->minor = MISC_DYNAMIC_MINOR;
+	hdcp->mdev->name = "hdcp";
+	hdcp->mdev->mode = 0666;
+	hdcp->mdev->fops = &hdcp_fops;
+
+	if (misc_register(hdcp->mdev)) {
+		HDCP_ERR("Could not add character driver\n");
+		kfree(hdcp->mdev);
+		hdcp->mdev = NULL;
+		goto err_hdcp_get_module_callbacks;
+	}
+
+	hdcp_load_keys();
+
+	return 0;
+
+err_hdcp_get_module_callbacks:
+	hdcp_release_module_callbacks();
+
+	return -EFAULT;
+
+}
+EXPORT_SYMBOL(hdcp_get_module_callbacks);
 
 static int __init hdcp_init(void)
 {
@@ -417,12 +577,6 @@ static int __init hdcp_init(void)
 		return -ENOMEM;
 	}
 
-	hdcp->mdev = kzalloc(sizeof(struct miscdevice), GFP_KERNEL);
-	if (!hdcp->mdev) {
-		HDCP_ERR("Could not allocate misc device memory\n");
-		goto err_alloc_mdev;
-	}
-
 	/* Map DESHDCP in kernel address space */
 	hdcp->deshdcp_base_addr = ioremap(DSS_SS_FROM_L3__DESHDCP, 0x34);
 
@@ -433,63 +587,9 @@ static int __init hdcp_init(void)
 
 	mutex_init(&hdcp->lock);
 
-	hdcp->mdev->minor = MISC_DYNAMIC_MINOR;
-	hdcp->mdev->name = "hdcp";
-	hdcp->mdev->mode = 0666;
-	hdcp->mdev->fops = &hdcp_fops;
-
-	if (misc_register(hdcp->mdev)) {
-		HDCP_ERR("Could not add character driver\n");
-		goto err_misc_register;
-	}
-
-	hdcp->workqueue = create_singlethread_workqueue("hdcp");
-	if (hdcp->workqueue == NULL) {
-		HDCP_ERR("Could not create HDCP workqueue\n");
-		goto err_add_driver;
-	}
-
-	hdcp->work = kzalloc(sizeof(struct delayed_work), GFP_ATOMIC);
-	if (hdcp->work) {
-		INIT_DELAYED_WORK(hdcp->work, hdcp_work_queue);
-	} else {
-		HDCP_ERR("Could not allocate memory to create work\n");
-		goto err_alloc_work;
-	}
-
-	if (hdmi_runtime_get()) {
-		HDCP_ERR("%s Error enabling clocks\n", __func__);
-		goto err_runtime;
-	}
-
-	/* Register HDCP callbacks to HDMI library */
-	omapdss_hdmi_register_hdcp_callbacks(&hdcp_start_frame_cb,
-						 &hdcp_3des_cb);
-
-	hdmi_runtime_put();
-
-	hdcp_load_keys();
-
 	return 0;
 
-err_runtime:
-	kfree(hdcp->work);
-
-err_alloc_work:
-	destroy_workqueue(hdcp->workqueue);
-
-err_add_driver:
-	misc_deregister(hdcp->mdev);
-
-err_misc_register:
-	mutex_destroy(&hdcp->lock);
-
-	iounmap(hdcp->deshdcp_base_addr);
-
 err_map_deshdcp:
-	kfree(hdcp->mdev);
-
-err_alloc_mdev:
 	kfree(hdcp);
 	return -EFAULT;
 }
@@ -498,34 +598,19 @@ static void __exit hdcp_exit(void)
 {
 	HDCP_DBG("hdcp_exit() %ums\n", jiffies_to_msecs(jiffies));
 
-	mutex_lock(&hdcp->lock);
+	hdcp_release_module_callbacks();
 
-	kfree(hdcp->en_ctrl);
-
-	if (hdmi_runtime_get()) {
-		HDCP_ERR("%s Error enabling clocks\n", __func__);
-		goto err_handling;
+	if(hdcp->deshdcp_base_addr)
+	{
+		iounmap(hdcp->deshdcp_base_addr);
+		hdcp->deshdcp_base_addr = NULL;
 	}
-
-	/* Un-register HDCP callbacks to HDMI library */
-	omapdss_hdmi_register_hdcp_callbacks(NULL, NULL);
-
-	hdmi_runtime_put();
-
-err_handling:
-	misc_deregister(hdcp->mdev);
-	kfree(hdcp->mdev);
-
-	iounmap(hdcp->deshdcp_base_addr);
-
-	kfree(hdcp->work);
-	destroy_workqueue(hdcp->workqueue);
-
-	mutex_unlock(&hdcp->lock);
 
 	mutex_destroy(&hdcp->lock);
 
 	kfree(hdcp);
+
+	hdcp = NULL;
 }
 
 module_init(hdcp_init);

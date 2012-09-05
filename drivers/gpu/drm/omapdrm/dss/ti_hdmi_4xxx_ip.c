@@ -445,7 +445,9 @@ int ti_hdmi_4xxx_phy_enable(struct hdmi_ip_data *ip_data)
 				 IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
 				 IRQF_ONESHOT, "hpd", ip_data);
 	if (r) {
-		DSSERR("HPD IRQ request failed\n");
+		DSSERR("HPD IRQ %d request for GPIO %d failed\n",
+				gpio_to_irq(ip_data->hpd_gpio),
+				ip_data->hpd_gpio);
 		hdmi_set_phy_pwr(ip_data, HDMI_PHYPWRCMD_OFF);
 		return r;
 	}

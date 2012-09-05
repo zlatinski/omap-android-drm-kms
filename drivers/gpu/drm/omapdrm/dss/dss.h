@@ -79,7 +79,7 @@
 #define DEBUG
 #endif
 
-#ifdef DEBUG
+#if 1 // def DEBUG
 extern bool dss_debug;
 #ifdef DSS_SUBSYS_NAME
 #define DSSDBG(format, ...) \
@@ -592,17 +592,24 @@ void hdmi_inform_hpd_to_cec(int status);
 void hdmi_inform_power_on_to_cec(int status);
 int hdmi_runtime_get(void);
 void hdmi_runtime_put(void);
-struct hdmi_ip_data *get_hdmi_ip_data(void);
-int omapdss_hdmi_register_cec_callbacks(void (*hdmi_cec_enable_cb)(int status),
-					void (*hdmi_cec_irq_cb)(void),
-					void (*hdmi_cec_hpd)(int phy_addr,
-					int status));
-int omapdss_hdmi_unregister_cec_callbacks(void);
+int cec_get_module_callbacks(
+		void* data,
+		int (*hdmi_runtime_get_cb)(void),
+		void (*hdmi_runtime_put_cb)(void),
+		void (**hdmi_cec_enable_cb)(int status),
+		void (**hdmi_cec_irq_cb)(void),
+		void (**hdmi_cec_hpd)(int phy_addr, int status));
+void cec_release_module_callbacks(void);
 
 int omapdss_hdmi_display_3d_enable(struct omap_dss_device *dssdev,
 					struct s3d_disp_info *info, int code);
-void omapdss_hdmi_register_hdcp_callbacks(void (*hdmi_start_frame_cb)(void),
-					bool (*hdmi_power_on_cb)(void));
+int hdcp_get_module_callbacks(
+		void* (*get_hdmi_ip_data)(void),
+		int (*hdmi_runtime_get_cb)(void),
+		void (*hdmi_runtime_put_cb)(void),
+		void (**hdmi_start_frame_cb)(void),
+		bool (**hdmi_power_on_cb)(void));
+void hdcp_release_module_callbacks(void);
 int hdmi_panel_init(void);
 void hdmi_panel_exit(void);
 #ifdef CONFIG_OMAP4_DSS_HDMI_AUDIO
