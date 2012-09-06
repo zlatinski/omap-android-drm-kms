@@ -102,6 +102,7 @@ int hdmi_runtime_get(void)
 
 	return 0;
 }
+EXPORT_SYMBOL(hdmi_runtime_get);
 
 void hdmi_runtime_put(void)
 {
@@ -112,6 +113,7 @@ void hdmi_runtime_put(void)
 	r = pm_runtime_put_sync(&hdmi.pdev->dev);
 	WARN_ON(r < 0);
 }
+EXPORT_SYMBOL(hdmi_runtime_put);
 
 int hdmi_init_display(struct omap_dss_device *dssdev)
 {
@@ -373,7 +375,7 @@ static void hdmi_load_hdcp_keys(struct omap_dss_device *dssdev)
 {
 	DSSDBG("hdmi_load_hdcp_keys\n");
 	/* load the keys and reset the wrapper to populate the AKSV registers*/
-	if (hdmi.hdmi_power_on_cb()) {
+	if (hdmi.hdmi_power_on_cb && hdmi.hdmi_power_on_cb()) {
 		hdmi_ti_4xxx_set_wait_soft_reset(&hdmi.ip_data);
 		DSSINFO("HDMI_WRAPPER RESET DONE\n");
 	}
@@ -791,6 +793,7 @@ void hdmi_dump_regs(struct seq_file *s)
 	hdmi_runtime_put();
 	mutex_unlock(&hdmi.lock);
 }
+EXPORT_SYMBOL(hdmi_dump_regs);
 
 int omapdss_hdmi_read_edid(u8 *buf, int len)
 {
@@ -1309,6 +1312,9 @@ static int omapdss_hdmihw_probe(struct platform_device *pdev)
 
 static int omapdss_hdmihw_remove(struct platform_device *pdev)
 {
+
+	if (hdmi.hdmi_irq > 0)
+		free_irq(hdmi.hdmi_irq, NULL);
 	hdmi_panel_exit();
 
 	pm_runtime_disable(&pdev->dev);

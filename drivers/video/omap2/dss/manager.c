@@ -23,8 +23,8 @@
 #define DSS_SUBSYS_NAME "MANAGER"
 
 #include <linux/kernel.h>
+#include <linux/export.h>
 #include <linux/slab.h>
-#include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/jiffies.h>
 
@@ -575,6 +575,7 @@ int dss_init_overlay_managers(struct platform_device *pdev)
 
 	return 0;
 }
+EXPORT_SYMBOL(dss_init_overlay_managers);
 
 void dss_uninit_overlay_managers(struct platform_device *pdev)
 {
@@ -591,6 +592,7 @@ void dss_uninit_overlay_managers(struct platform_device *pdev)
 	managers = NULL;
 	num_managers = 0;
 }
+EXPORT_SYMBOL(dss_uninit_overlay_managers);
 
 int omap_dss_get_num_overlay_managers(void)
 {

@@ -279,6 +279,7 @@ void dss_dump_clocks(struct seq_file *s)
 
 	dss_runtime_put();
 }
+EXPORT_SYMBOL_GPL(dss_dump_clocks);
 
 void dss_dump_regs(struct seq_file *s)
 {
@@ -302,6 +303,7 @@ void dss_dump_regs(struct seq_file *s)
 	dss_runtime_put();
 #undef DUMPREG
 }
+EXPORT_SYMBOL_GPL(dss_dump_regs);
 
 void dss_select_dispc_clk_source(enum omap_dss_clk_source clk_src)
 {
@@ -325,6 +327,7 @@ void dss_select_dispc_clk_source(enum omap_dss_clk_source clk_src)
 		break;
 	default:
 		BUG();
+		return;
 	}
 
 	dss_feat_get_reg_field(FEAT_REG_DISPC_CLK_SWITCH, &start, &end);
@@ -358,6 +361,7 @@ void dss_select_dsi_clk_source(int dsi_module,
 		break;
 	default:
 		BUG();
+		return;
 	}
 
 	REG_FLD_MOD(DSS_CONTROL, b, 1, 1);	/* DSI_CLK_SWITCH */
@@ -392,6 +396,7 @@ void dss_select_lcd_clk_source(enum omap_channel channel,
 		break;
 	default:
 		BUG();
+		return;
 	}
 
 	pos = channel == OMAP_DSS_CHANNEL_LCD ? 0 : 12;
@@ -748,7 +753,7 @@ static void dss_runtime_put(void)
 	DSSDBG("dss_runtime_put\n");
 
 	r = pm_runtime_put_sync(&dss.pdev->dev);
-	WARN_ON(r < 0);
+	WARN_ON(r < 0 && r != -ENOSYS && r != -EBUSY);
 }
 
 /* DEBUGFS */
