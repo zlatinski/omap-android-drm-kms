@@ -1315,6 +1315,7 @@ static int omapdss_hdmihw_remove(struct platform_device *pdev)
 
 	if (hdmi.hdmi_irq > 0)
 		free_irq(hdmi.hdmi_irq, NULL);
+
 	hdmi_panel_exit();
 
 	pm_runtime_disable(&pdev->dev);
