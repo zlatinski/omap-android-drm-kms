@@ -304,21 +304,6 @@ err:
 	return r;
 }
 
-
-static irqreturn_t hpd_irq_handler(int irq, void *data)
-{
-#ifndef CONFIG_DRM_OMAP
-	struct hdmi_ip_data *ip_data = data;
-
-	hdmi_check_hpd_state(ip_data);
-#else
-	extern void omapdrm_hpd_change(void);
-	omapdrm_hpd_change();
-#endif
-
-	return IRQ_HANDLED;
-}
-
 int ti_hdmi_4xxx_phy_enable(struct hdmi_ip_data *ip_data)
 {
 	u16 r = 0;

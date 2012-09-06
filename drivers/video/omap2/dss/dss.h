@@ -394,6 +394,10 @@ void dispc_dump_irqs(struct seq_file *s);
 void dispc_dump_regs(struct seq_file *s);
 void dispc_irq_handler(void);
 void dispc_fake_vsync_irq(void);
+u32 dispc_read_irqs(void);
+void dispc_clear_irqs(u32 mask);
+void dispc_set_irqs(u32 mask);
+u32 dispc_error_irqs(void);
 
 int dispc_runtime_get(void);
 void dispc_runtime_put(void);
