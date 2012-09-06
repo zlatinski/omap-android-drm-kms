@@ -650,12 +650,6 @@ static void dispc_ovl_set_vid_size(enum omap_plane plane, int width, int height)
 	dispc_write_reg(DISPC_OVL_SIZE(plane), val);
 }
 
-static bool dispc_ovl_check_caps(enum omap_plane plane,
-		enum omap_overlay_caps caps)
-{
-	return !!(dss_feat_get_overlay_caps(plane) & caps);
-}
-
 static void dispc_ovl_set_zorder(enum omap_plane plane, u8 zorder)
 {
 	struct omap_overlay *ovl = omap_dss_get_overlay(plane);
@@ -2197,6 +2191,12 @@ int dispc_ovl_setup(enum omap_plane plane, struct omap_overlay_info *oi,
 	return 0;
 }
 
+static bool dispc_ovl_check_caps(enum omap_plane plane,
+		enum omap_overlay_caps caps)
+{
+	return !!(dss_feat_get_overlay_caps(plane) & caps);
+}
+
 static unsigned long dispc_core_clk_rate(void)
 {
 	int lcd;
@@ -3643,6 +3643,17 @@ void dispc_set_irqs(u32 mask)
 }
 EXPORT_SYMBOL_GPL(dispc_set_irqs);
 
+u32 dispc_error_irqs(void)
+{
+	u32 mask = DISPC_IRQ_MASK_ERROR;
+	if (dss_has_feature(FEAT_MGR_LCD2))
+		mask |= DISPC_IRQ_SYNC_LOST2;
+	if (dss_feat_get_num_ovls() > 3)
+		mask |= DISPC_IRQ_VID3_FIFO_UNDERFLOW;
+	return mask;
+}
+EXPORT_SYMBOL_GPL(dispc_error_irqs);
+
 /* dispc.irq_lock has to be locked by the caller */
 static void _omap_dispc_set_irqs(void)
 {
@@ -4052,17 +4063,6 @@ void dispc_fake_vsync_irq(void)
 	}
 }
 #endif
-
-u32 dispc_error_irqs(void)
-{
-	u32 mask = DISPC_IRQ_MASK_ERROR;
-	if (dss_has_feature(FEAT_MGR_LCD2))
-		mask |= DISPC_IRQ_SYNC_LOST2;
-	if (dss_feat_get_num_ovls() > 3)
-		mask |= DISPC_IRQ_VID3_FIFO_UNDERFLOW;
-	return mask;
-}
-EXPORT_SYMBOL_GPL(dispc_error_irqs);
 
 static void _omap_dispc_initialize_irq(void)
 {
