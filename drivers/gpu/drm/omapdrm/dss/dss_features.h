@@ -126,5 +126,4 @@ void dss_features_init(void);
 #if defined(CONFIG_OMAP4_DSS_HDMI) || defined(CONFIG_OMAP5_DSS_HDMI)
 void dss_init_hdmi_ip_ops(struct hdmi_ip_data *ip_data);
 #endif
-
 #endif

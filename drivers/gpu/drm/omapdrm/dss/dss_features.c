@@ -52,7 +52,6 @@ struct omap_dss_features {
 	const enum omap_overlay_caps *overlay_caps;
 	const char * const *clksrc_names;
 	const struct dss_param_range *dss_params;
-
 	const enum omap_dss_rotation_type supported_rotation_types;
 
 	const u32 buffer_size_unit;
