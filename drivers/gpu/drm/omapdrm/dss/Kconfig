@@ -68,8 +68,8 @@ config OMAP_DRM_DSS_VENC
 	  OMAP Video Encoder support for S-Video and composite TV-out.
 
 config OMAP4_DSS_HDMI
-	bool "HDMI support" 
-	depends on ARCH_OMAP4
+	bool "HDMI support"
+	depends on ARCH_OMAP4 || ANDROID_SWITCH
         default y
 	help
 	  HDMI Interface. This adds the High Definition Multimedia Interface.
@@ -117,7 +117,7 @@ config OMAP_DRM_DSS_SDI
 
 config OMAP_DRM_DSS_DSI
 	bool "DSI support"
-	depends on ARCH_OMAP3 || ARCH_OMAP4
+	depends on ARCH_OMAP3 || ARCH_OMAP4 || ARCH_OMAP5
         default n
 	help
 	  MIPI DSI (Display Serial Interface) support.
