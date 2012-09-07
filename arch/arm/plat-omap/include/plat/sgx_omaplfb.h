@@ -75,12 +75,6 @@ static inline int sgx_omaplfb_set(unsigned int fbix,
 	return -1;
 }
 
-static inline int sgx_omaplfb_set(unsigned int fbix,
-			struct sgx_omaplfb_config *data)
-{
-	return 0;
-}
-
 static inline struct sgx_omaplfb_config *sgx_omaplfb_get(unsigned int fbix)
 {
 	return NULL;
