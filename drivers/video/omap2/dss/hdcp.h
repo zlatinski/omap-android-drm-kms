@@ -153,7 +153,7 @@ struct hdcp_wait_control {
 
 #define HDCP_WARN(format, ...) \
 		printk(KERN_WARNING "HDCP: " format "\n", ## __VA_ARGS__)
-#ifdef HDCP_DEBUG
+#if 1 //def HDCP_DEBUG
 #define HDCP_DBG(format, ...) \
 		printk(KERN_DEBUG "HDCP: " format "\n", ## __VA_ARGS__)
 #else
