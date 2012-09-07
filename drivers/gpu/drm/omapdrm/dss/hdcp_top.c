@@ -449,6 +449,7 @@ static int hdcp_load_keys(void)
 	return ret;
 }
 
+
 static const struct file_operations hdcp_fops = {
 	.owner = THIS_MODULE,
 	.mmap = hdcp_mmap,

@@ -24,4 +24,4 @@ omap-dmm-tiler-y := omap_dmm_tiler.o \
 
 obj-$(CONFIG_DRM_OMAP_DMM_TILER) += omap-dmm-tiler.o
 obj-$(CONFIG_DRM_OMAP_DISPLAY)	+= omapdrm.o
-obj-$(CONFIG_OMAP_DRM_DSS) += dss/
+# obj-$(CONFIG_OMAP_DRM_DSS) += dss/

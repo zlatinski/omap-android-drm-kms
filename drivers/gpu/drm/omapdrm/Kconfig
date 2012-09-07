@@ -37,6 +37,6 @@ config DRM_OMAP_DMM_TILER
 	help
 	  Enable the DMM/Tiler driver for OMAP4+ boards.
 
-source drivers/gpu/drm/omapdrm/dss/Kconfig
+# source drivers/gpu/drm/omapdrm/dss/Kconfig
 
 
