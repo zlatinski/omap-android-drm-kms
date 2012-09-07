@@ -67,16 +67,14 @@ struct sgx_omaplfb_platform_data {
 
 #ifdef CONFIG_OMAPLFB
 int sgx_omaplfb_set(unsigned int fbix, struct sgx_omaplfb_config *data);
+struct sgx_omaplfb_config *sgx_omaplfb_get(unsigned int fbix);
 #else
 static inline int sgx_omaplfb_set(unsigned int fbix,
 	struct sgx_omaplfb_config *data)
 {
 	return -1;
 }
-#endif
 
-struct sgx_omaplfb_config *sgx_omaplfb_get(unsigned int fbix);
-#else
 static inline int sgx_omaplfb_set(unsigned int fbix,
 			struct sgx_omaplfb_config *data)
 {
@@ -88,6 +86,6 @@ static inline struct sgx_omaplfb_config *sgx_omaplfb_get(unsigned int fbix)
 	return NULL;
 }
 
-#endif /* CONFIG_ION_OMAP */
+#endif /* CONFIG_OMAPLFB */
 
 #endif
