@@ -21,7 +21,7 @@
 #include "omap_dmm_tiler.h"
 
 #include "drm_fb_helper.h"
-#include "dss/dss.h"
+#include <dss.h>
 
 #ifdef CONFIG_DEBUG_FS
 

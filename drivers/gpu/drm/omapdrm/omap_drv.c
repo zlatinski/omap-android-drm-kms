@@ -22,8 +22,8 @@
 #include "drm_crtc_helper.h"
 #include "drm_fb_helper.h"
 #include "omap_dmm_tiler.h"
-#include "dss/dss.h"
-#include "dss/dss_features.h"
+#include <dss.h>
+#include <dss_features.h>
 
 #define DRIVER_NAME		MODULE_NAME
 #define DRIVER_DESC		"OMAP DRM"
@@ -201,32 +201,17 @@ static int omap_modeset_init(struct drm_device *dev)
 
 	dev->mode_config.funcs = &omap_mode_config_funcs;
 
-	if (cpu_is_omap44xx())
-	{
-		ti_hdmi_4xxx_install_external_hpd_irq_handler(
+	ti_hdmi_install_external_hpd_irq_handler(
 				&omapdrm_hpd_irq_handler, dev);
-	}
-	else if (cpu_is_omap54xx())
-	{
-		ti_hdmi_5xxx_install_external_hpd_irq_handler(
-				&omapdrm_hpd_irq_handler, dev);
-	}
 
 	return drm_irq_install(dev);
 }
 
 static void omap_modeset_free(struct drm_device *dev)
 {
-	if (cpu_is_omap44xx())
-	{
-		ti_hdmi_4xxx_uninstall_external_hpd_irq_handler(
+	ti_hdmi_uninstall_external_hpd_irq_handler(
 				&omapdrm_hpd_irq_handler, dev);
-	}
-	else if (cpu_is_omap54xx())
-	{
-		ti_hdmi_5xxx_uninstall_external_hpd_irq_handler(
-				&omapdrm_hpd_irq_handler, dev);
-	}
+
 	drm_mode_config_cleanup(dev);
 }
 
