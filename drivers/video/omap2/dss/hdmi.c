@@ -40,6 +40,8 @@
 #include "ti_hdmi.h"
 #include "dss.h"
 #include "dss_features.h"
+#include "cec.h"
+#include "hdcp.h"
 
 #define HDMI_WP			0x0
 #define HDMI_PLLCTRL		0x200
@@ -522,14 +524,7 @@ static void hdmi_power_off(struct omap_dss_device *dssdev)
 	hdmi.ip_data.cfg.deep_color = HDMI_DEEP_COLOR_24BIT;
 }
 
-void omapdss_hdmi_register_hdcp_callbacks(void (*hdmi_start_frame_cb)(void),
-				 bool (*hdmi_power_on_cb)(void))
-{
-	hdmi.hdmi_start_frame_cb = hdmi_start_frame_cb;
-	hdmi.hdmi_power_on_cb = hdmi_power_on_cb;
-}
-
-struct hdmi_ip_data *get_hdmi_ip_data(void)
+static struct hdmi_ip_data *get_hdmi_ip_data(void)
 {
 	return &hdmi.ip_data;
 }
@@ -587,33 +582,12 @@ int omapdss_hdmi_get_range(void)
 	return hdmi.ip_data.cfg.range;
 }
 
-int omapdss_hdmi_register_cec_callbacks(void (*hdmi_cec_enable_cb)(int status),
-					void (*hdmi_cec_irq_cb)(void),
-					void (*hdmi_cec_hpd)(int phy_addr,
-					int status))
-{
-	hdmi.hdmi_cec_enable_cb = hdmi_cec_enable_cb;
-	hdmi.hdmi_cec_irq_cb = hdmi_cec_irq_cb;
-	hdmi.hdmi_cec_hpd = hdmi_cec_hpd;
-	return 0;
-}
-EXPORT_SYMBOL(omapdss_hdmi_register_cec_callbacks);
-
 int hdmi_get_ipdata(struct hdmi_ip_data *ip_data)
 {
 	*ip_data = hdmi.ip_data;
 	return 0;
 }
 EXPORT_SYMBOL(hdmi_get_ipdata);
-
-int omapdss_hdmi_unregister_cec_callbacks(void)
-{
-	hdmi.hdmi_cec_enable_cb = NULL;
-	hdmi.hdmi_cec_irq_cb = NULL;
-	hdmi.hdmi_cec_hpd = NULL;
-	return 0;
-}
-EXPORT_SYMBOL(omapdss_hdmi_unregister_cec_callbacks);
 
 static void omapdss_dss2fb_timings(struct omap_video_timings *dss_timings,
                         struct fb_videomode *fb_timings)
@@ -1319,6 +1293,22 @@ static int omapdss_hdmihw_probe(struct platform_device *pdev)
 	hdmi.ip_data.pll_offset = HDMI_PLLCTRL;
 	hdmi.ip_data.phy_offset = HDMI_PHY;
 
+	hdmi.ip_data.cec_offset = dss_feat_get_hdmi_cec_offset();
+	cec_claim_module(
+			&hdmi.ip_data,
+			&hdmi_runtime_get,
+			&hdmi_runtime_put,
+			&hdmi.hdmi_cec_enable_cb,
+			&hdmi.hdmi_cec_irq_cb,
+			&hdmi.hdmi_cec_hpd);
+
+	hdcp_claim_module(
+			(void * (*)(void))&get_hdmi_ip_data,
+			&hdmi_runtime_get,
+			&hdmi_runtime_put,
+			&hdmi.hdmi_start_frame_cb,
+			&hdmi.hdmi_power_on_cb);
+
 	hdmi_panel_init();
 
 	if (hdmi_get_current_hpd())
@@ -1331,6 +1321,9 @@ static int omapdss_hdmihw_remove(struct platform_device *pdev)
 
 	if (hdmi.hdmi_irq > 0)
 		free_irq(hdmi.hdmi_irq, NULL);
+
+	cec_release_module();
+	hdcp_release_module();
 
 	hdmi_panel_exit();
 
@@ -1397,3 +1390,109 @@ void hdmi_uninit_platform_driver(void)
 {
 	return platform_driver_unregister(&omapdss_hdmihw_driver);
 }
+
+/* FIXME: temporary fix */
+#include <linux/gpio.h>
+#include <linux/interrupt.h>
+
+static int hdmi_check_hpd_state(struct hdmi_ip_data *ip_data)
+{
+	unsigned long flags;
+	bool hpd;
+	int r;
+	/* this should be in ti_hdmi_4xxx_ip private data */
+	static DEFINE_SPINLOCK(phy_tx_lock);
+
+	spin_lock_irqsave(&phy_tx_lock, flags);
+
+	hpd = gpio_get_value(ip_data->hpd_gpio);
+
+	if (hpd == ip_data->phy_tx_enabled) {
+		spin_unlock_irqrestore(&phy_tx_lock, flags);
+		return 0;
+	}
+
+	r = ti_hdmi_4xxx_set_phy_on_hpd(ip_data, hpd);
+	if (r) {
+		DSSERR("Failed to %s PHY TX power\n",
+				hpd ? "enable" : "disable");
+		goto err;
+	}
+
+	ip_data->phy_tx_enabled = hpd;
+
+err:
+	spin_unlock_irqrestore(&phy_tx_lock, flags);
+	return r;
+}
+
+static hpd_irq_handler_t* hdmi_external_irq_handler;
+static void* hdmi_external_irq_handler_data;
+static DEFINE_SPINLOCK(manage_external_irq_handler_lock);
+
+static irqreturn_t hpd_irq_handler(int irq, void *data)
+{
+	struct hdmi_ip_data *ip_data = data;
+
+	if(hdmi_external_irq_handler)
+	{
+		hdmi_external_irq_handler(irq, ip_data,
+				hdmi_external_irq_handler_data);
+	}
+
+	hdmi_check_hpd_state(ip_data);
+
+	return IRQ_HANDLED;
+}
+
+int ti_hdmi_install_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void* user_data)
+{
+	unsigned long flags;
+	int ret;
+
+	if(cpu_is_omap44xx())
+	{
+		spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+		hdmi_external_irq_handler_data = user_data;
+		hdmi_external_irq_handler = irq_handler;
+
+		spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+
+		ret = request_threaded_irq(gpio_to_irq(hdmi.ip_data.hpd_gpio),
+					 NULL, hpd_irq_handler,
+					 IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
+					 IRQF_ONESHOT, "hpd", &hdmi.ip_data);
+		if (ret) {
+			DSSERR("HPD IRQ %d request for GPIO %d failed\n",
+					gpio_to_irq(hdmi.ip_data.hpd_gpio),
+					hdmi.ip_data.hpd_gpio);
+			ti_hdmi_4xxx_phy_disable(&hdmi.ip_data);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_install_external_hpd_irq_handler);
+
+int ti_hdmi_uninstall_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data)
+{
+	unsigned long flags;
+
+	if(cpu_is_omap44xx())
+	{
+		free_irq(gpio_to_irq(hdmi.ip_data.hpd_gpio), &hdmi.ip_data);
+
+		spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+		hdmi_external_irq_handler_data = NULL;
+		hdmi_external_irq_handler = NULL;
+
+		spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_uninstall_external_hpd_irq_handler);

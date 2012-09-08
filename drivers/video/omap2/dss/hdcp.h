@@ -143,8 +143,6 @@ struct hdcp_wait_control {
 #define RD_FIELD_32(base, offset, start, end) \
 	((RD_REG_32(base, offset) & FLD_MASK(start, end)) >> (end))
 
-#undef DBG
-
 #define HDCP_ERR(format, ...) \
 		printk(KERN_ERR "HDCP: " format "\n", ## __VA_ARGS__)
 
@@ -159,6 +157,14 @@ struct hdcp_wait_control {
 #else
 #define HDCP_DBG(format, ...)
 #endif
+
+int hdcp_claim_module(
+               void* (*get_hdmi_ip_data)(void),
+               int (*hdmi_runtime_get_cb)(void),
+               void (*hdmi_runtime_put_cb)(void),
+               void (**hdmi_start_frame_cb)(void),
+               bool (**hdmi_power_on_cb)(void));
+void hdcp_release_module(void);
 
 #endif /* __KERNEL__ */
 

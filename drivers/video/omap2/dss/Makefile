@@ -7,10 +7,14 @@ omapdss-$(CONFIG_OMAP2_DSS_VENC) += venc.o
 omapdss-$(CONFIG_OMAP2_DSS_SDI) += sdi.o
 omapdss-$(CONFIG_OMAP2_DSS_DSI) += dsi.o
 omapdss-$(CONFIG_OMAP4_DSS_HDMI) += hdmi.o \
-				    hdmi_panel.o ti_hdmi_4xxx_ip.o \
-				    cec.o
+				    hdmi_panel.o ti_hdmi_4xxx_ip.o
 omapdss-$(CONFIG_OMAP5_DSS_HDMI) += hdmi.o \
-				hdmi_panel.o ti_hdmi_4xxx_ip.o ti_hdmi_5xxx_ip.o \
-				cec.o hdcp_top.o
+				hdmi_panel.o ti_hdmi_4xxx_ip.o ti_hdmi_5xxx_ip.o
 
+omap-cec-y := cec.o
+
+omap-hdcp-y := hdcp_top.o
+
+obj-$(CONFIG_OMAP_HDMI_CEC)	+= omap-cec.o
+obj-$(CONFIG_OMAP_HDMI_HDCP) += omap-hdcp.o
 ccflags-y += -Iarch/arm
