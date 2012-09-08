@@ -781,6 +781,7 @@ unsigned long dss_feat_get_param_max(enum dss_range_param param)
 {
 	return omap_current_dss_features->dss_params[param].max;
 }
+EXPORT_SYMBOL(dss_feat_get_param_max);
 
 enum omap_display_type dss_feat_get_supported_displays(enum omap_channel channel)
 {

@@ -1935,6 +1935,7 @@ loop:
 	*y_decim = y;
 	return 0;
 }
+EXPORT_SYMBOL(dispc_scaling_decision);
 
 static int dispc_ovl_calc_scaling(enum omap_plane plane,
 		enum omap_channel channel, u16 width, u16 height,
@@ -3159,6 +3160,7 @@ unsigned long dispc_fclk_rate(void)
 
 	return r;
 }
+EXPORT_SYMBOL(dispc_fclk_rate);
 
 unsigned long dispc_mgr_lclk_rate(enum omap_channel channel)
 {

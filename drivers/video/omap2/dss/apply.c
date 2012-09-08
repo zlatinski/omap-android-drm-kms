@@ -1133,6 +1133,7 @@ int omap_dss_manager_unregister_callback(struct omap_overlay_manager *mgr,
 	spin_unlock_irqrestore(&data_lock, flags);
 	return r;
 }
+EXPORT_SYMBOL(omap_dss_manager_unregister_callback);
 
 static void omap_dss_mgr_apply_ovl(struct omap_overlay *ovl)
 {
