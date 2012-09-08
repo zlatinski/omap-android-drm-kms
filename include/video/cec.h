@@ -57,14 +57,7 @@ struct cec_rx_data {
 int cec_read_rx_cmd(struct cec_rx_data *rx_data);
 int cec_transmit_cmd(struct cec_tx_data *data, int *cmd_acked);
 int cec_ioctl_register_device(struct cec_dev *dev);
-#if defined(CONFIG_OMAP_HDMI_CEC_SUPPORT) || defined(CONFIG_OMAP4_DSS_HDMI)
 int cec_enable_ui_event(int enable);
-#else
-static inline int cec_enable_ui_event(int enable)
-{
-	return -1;
-}
-#endif
 #endif
 
 enum cec_command {
