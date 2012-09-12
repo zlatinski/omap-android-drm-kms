@@ -111,10 +111,17 @@ static int get_connector_type(struct omap_dss_device *dssdev)
 	}
 }
 
-void omapdrm_hpd_change(void)
+static irqreturn_t omapdrm_hpd_irq_handler(int irq,
+		struct hdmi_ip_data *data, void *user_data)
 {
-	if (drm_device)
-		drm_helper_hpd_irq_event(drm_device);
+	if(user_data)
+	{
+		struct drm_device *drm_device_data =
+				(struct drm_device *)user_data;
+		drm_helper_hpd_irq_event(drm_device_data);
+	}
+
+	return IRQ_HANDLED;
 }
 
 static int omap_modeset_init(struct drm_device *dev)
@@ -215,11 +222,17 @@ static int omap_modeset_init(struct drm_device *dev)
 
 	dev->mode_config.funcs = &omap_mode_config_funcs;
 
+	ti_hdmi_install_external_hpd_irq_handler(
+				&omapdrm_hpd_irq_handler, dev);
+
 	return drm_irq_install(dev);
 }
 
 static void omap_modeset_free(struct drm_device *dev)
 {
+	ti_hdmi_uninstall_external_hpd_irq_handler(
+				&omapdrm_hpd_irq_handler, dev);
+
 	drm_mode_config_cleanup(dev);
 }
 
