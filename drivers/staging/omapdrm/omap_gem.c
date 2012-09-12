@@ -882,7 +882,7 @@ int omap_gem_tiled_stride(struct drm_gem_object *obj, uint32_t orient)
 	struct omap_gem_object *omap_obj = to_omap_bo(obj);
 	int ret = -EINVAL;
 	if (omap_obj->flags & OMAP_BO_TILED)
-		ret = tiler_stride(gem2fmt(omap_obj->flags), orient);
+		ret = tiler_stride_format(gem2fmt(omap_obj->flags), orient);
 	return ret;
 }
 

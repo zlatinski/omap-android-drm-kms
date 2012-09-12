@@ -17,6 +17,7 @@
  */
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/export.h>
 #include <linux/platform_device.h> /* platform_device() */
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -496,7 +497,7 @@ EXPORT_SYMBOL(tiler_release);
  * Otherwise the bits indicated the corresponding bit address to access
  * the SDRAM.
  */
-static u32 tiler_get_address(enum tiler_fmt fmt, u32 orient, u32 x, u32 y)
+static u32 tiler_get_address(u32 orient, enum tiler_fmt fmt, u32 x, u32 y)
 {
 	u32 x_bits, y_bits, tmp, x_mask, y_mask, alignment;
 
@@ -533,7 +534,7 @@ dma_addr_t tiler_ssptr(struct tiler_block *block)
 {
 	WARN_ON(!validfmt(block->fmt));
 
-	return TILVIEW_8BIT + tiler_get_address(block->fmt, 0,
+	return TILVIEW_8BIT + tiler_get_address(0, block->fmt,
 			block->area.p0.x * geom[block->fmt].slot_w,
 			block->area.p0.y * geom[block->fmt].slot_h);
 }
@@ -549,6 +550,7 @@ dma_addr_t tiler_tsptr(struct tiler_block *block, uint32_t orient,
 			(p->x * geom[block->fmt].slot_w) + x,
 			(p->y * geom[block->fmt].slot_h) + y);
 }
+EXPORT_SYMBOL(tiler_tsptr);
 
 void tiler_align(enum tiler_fmt fmt, uint16_t *w, uint16_t *h)
 {
