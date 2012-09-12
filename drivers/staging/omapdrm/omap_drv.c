@@ -22,6 +22,8 @@
 #include "drm_crtc_helper.h"
 #include "drm_fb_helper.h"
 #include "omap_dmm_tiler.h"
+#include <dss.h>
+#include <dss_features.h>
 
 #define DRIVER_NAME		MODULE_NAME
 #define DRIVER_DESC		"OMAP DRM"

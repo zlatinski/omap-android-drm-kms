@@ -28,43 +28,6 @@
 #include <plat/drm.h>
 #include "omap_drm.h"
 
-/* APIs we need from dispc.. TODO omapdss should export these */
-void dispc_clear_irqs(u32 mask);
-u32 dispc_read_irqs(void);
-void dispc_set_irqs(u32 mask);
-u32 dispc_error_irqs(void);
-int dispc_runtime_get(void);
-int dispc_runtime_put(void);
-
-void dispc_mgr_enable(enum omap_channel channel, bool enable);
-void dispc_mgr_setup(enum omap_channel channel,
-		struct omap_overlay_manager_info *info);
-void dispc_mgr_set_timings(enum omap_channel channel,
-		struct omap_video_timings *timings);
-bool dispc_mgr_go(enum omap_channel channel);
-bool dispc_mgr_go_busy(enum omap_channel channel);
-u32 dispc_mgr_get_vsync_irq(enum omap_channel channel);
-u32 dispc_mgr_get_framedone_irq(enum omap_channel channel);
-
-int dispc_ovl_enable(enum omap_plane plane, bool enable);
-void dispc_ovl_set_channel_out(enum omap_plane plane,
-		enum omap_channel channel);
-int dispc_ovl_setup(enum omap_plane plane, struct omap_overlay_info *oi,
-		bool ilace, bool replication,
-		const struct omap_video_timings *mgr_timings);
-
-int dss_feat_get_num_mgrs(void);
-int dss_feat_get_num_ovls(void);
-enum omap_display_type dss_feat_get_supported_displays(enum omap_channel channel);
-enum omap_color_mode dss_feat_get_supported_color_modes(enum omap_plane plane);
-
-void dispc_dump_regs(struct seq_file *s);
-void dispc_dump_clocks(struct seq_file *s);
-void dss_dump_clocks(struct seq_file *s);
-void dss_dump_regs(struct seq_file *s);
-void hdmi_dump_regs(struct seq_file *s);
-
-
 #define DBG(fmt, ...) DRM_DEBUG(fmt"\n", ##__VA_ARGS__)
 #define VERB(fmt, ...) if (0) DRM_DEBUG(fmt, ##__VA_ARGS__) /* verbose debug */
 

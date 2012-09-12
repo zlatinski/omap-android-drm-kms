@@ -3,7 +3,7 @@
 # Direct Rendering Infrastructure (DRI)
 #
 
-ccflags-y := -Iinclude/drm -Werror
+ccflags-y := -Iinclude/drm -Idrivers/video/omap2/dss -Werror
 omapdrm-y := omap_drv.o \
 	omap_irq.o \
 	omap_debugfs.o \
