@@ -18,6 +18,7 @@
  */
 
 #include "omap_drv.h"
+#include <dss.h>
 
 static DEFINE_SPINLOCK(list_lock);
 

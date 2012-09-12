@@ -21,6 +21,8 @@
 
 #include "omap_drv.h"
 #include "omap_dmm_tiler.h"
+#include <dss.h>
+#include <dss_features.h>
 
 /* some hackery because omapdss has an 'enum omap_plane' (which would be
  * better named omap_plane_id).. and compiler seems unhappy about having

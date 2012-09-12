@@ -9,7 +9,7 @@ menuconfig DRM_OMAP
 
 config DRM_OMAP_DISPLAY
 	tristate "OMAP DRM Display Driver"
-	depends on DRM_OMAP && !CONFIG_FB_OMAP2
+	depends on DRM_OMAP
 	select DRM_KMS_HELPER
 	select OMAP2_DSS
 	select FB_SYS_FILLRECT

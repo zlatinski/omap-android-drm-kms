@@ -22,6 +22,7 @@
 #include "drm_mode.h"
 #include "drm_crtc.h"
 #include "drm_crtc_helper.h"
+#include <dss.h>
 
 #define to_omap_crtc(x) container_of(x, struct omap_crtc, base)
 
