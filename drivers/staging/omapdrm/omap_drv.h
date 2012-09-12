@@ -246,26 +246,8 @@ static inline int align_pitch(int pitch, int width, int bpp)
 	return ALIGN(pitch, 8 * bytespp);
 }
 
-static inline enum omap_channel pipe2chan(int pipe)
-{
-	int num_mgrs = dss_feat_get_num_mgrs();
-
-	/*
-	 * We usually don't want to create a CRTC for each manager,
-	 * at least not until we have a way to expose private planes
-	 * to userspace.  Otherwise there would not be enough video
-	 * pipes left for drm planes.  The higher #'d managers tend
-	 * to have more features so start in reverse order.
-	 */
-	return num_mgrs - pipe - 1;
-}
-
 /* map crtc to vblank mask */
-static inline uint32_t pipe2vbl(int crtc)
-{
-	enum omap_channel channel = pipe2chan(crtc);
-	return dispc_mgr_get_vsync_irq(channel);
-}
+uint32_t pipe2vbl(int crtc);
 
 /* should these be made into common util helpers?
  */
