@@ -453,7 +453,7 @@ bool dispc_mgr_go_busy(enum omap_channel channel)
 		return REG_GET(DISPC_CONTROL, bit, bit) == 1;
 }
 
-void dispc_mgr_go(enum omap_channel channel)
+bool dispc_mgr_go(enum omap_channel channel)
 {
 	int bit;
 	bool enable_bit, go_bit;
@@ -470,7 +470,7 @@ void dispc_mgr_go(enum omap_channel channel)
 		enable_bit = REG_GET(DISPC_CONTROL, bit, bit) == 1;
 
 	if (!enable_bit)
-		return;
+		return false;
 
 	if (dispc_mgr_is_lcd(channel))
 		bit = 5; /* GOLCD */
@@ -484,7 +484,7 @@ void dispc_mgr_go(enum omap_channel channel)
 
 	if (go_bit) {
 		DSSERR("GO bit not down for channel %d\n", channel);
-		return;
+		return false;
 	}
 
 	DSSDBG("GO %s\n", channel == OMAP_DSS_CHANNEL_LCD ? "LCD" :
@@ -494,6 +494,8 @@ void dispc_mgr_go(enum omap_channel channel)
 		REG_FLD_MOD(DISPC_CONTROL2, 1, bit, bit);
 	else
 		REG_FLD_MOD(DISPC_CONTROL, 1, bit, bit);
+
+	return true;
 }
 
 static void dispc_ovl_write_firh_reg(enum omap_plane plane, int reg, u32 value)
