@@ -1218,8 +1218,9 @@ static int omap_dmm_resume(struct device *dev)
 	struct tcm_area area = {0};
 	int number_slots;
 	struct mem_info mem;
+#if 0 // TODO: DMM Fix with a patch
 	int i, j;
-
+#endif
 	if (!dmm_is_initialized()) {
 		dev_err(dev, "%s: DMM not initialized\n", __func__);
 		return -ENODEV;
@@ -1238,6 +1239,7 @@ static int omap_dmm_resume(struct device *dev)
 	area.p1.y = omap_dmm->container_height - 1;
 	mem.type = MEMTYPE_PAGES;
 
+#if 0 // TODO: DMM Fix with a patch
 	for (i = 0; i < omap_dmm->num_lut; i++) {
 		area.tcm = omap_dmm->tcm[i];
 		area.is2d = (cpu_is_omap54xx() && i) ? false : true;
@@ -1253,6 +1255,7 @@ static int omap_dmm_resume(struct device *dev)
 				omap_dmm->container_height, 0, true))
 			dev_err(omap_dmm->dev, "refill failed");
 	}
+#endif
 
 	dev_info(omap_dmm->dev, "%s: omap_dmm_resume:PAT entries restored\n",
 			__func__);
