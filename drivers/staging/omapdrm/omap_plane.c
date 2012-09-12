@@ -150,10 +150,10 @@ static void omap_plane_pre_apply(struct omap_drm_apply *apply)
 	replication = false;
 
 	/* and finally, update omapdss: */
-	ret = dispc_ovl_setup(omap_plane->id, info, ilace,
+	ret = dispc_ovl_setup_with_timings(omap_plane->id, info, ilace,
 			replication, omap_crtc_timings(plane->crtc));
 	if (ret) {
-		dev_err(dev->dev, "dispc_ovl_setup failed: %d\n", ret);
+		dev_err(dev->dev, "dispc_ovl_setup_with_timings failed: %d\n", ret);
 		return;
 	}
 

@@ -416,7 +416,7 @@ static void omap_crtc_pre_apply(struct omap_drm_apply *apply)
 	}
 
 	dispc_mgr_setup(omap_crtc->channel, &omap_crtc->info);
-	dispc_mgr_set_timings(omap_crtc->channel,
+	dispc_mgr_set_lcd_timings(omap_crtc->channel,
 			&omap_crtc->timings);
 	dispc_mgr_enable(omap_crtc->channel, true);
 }
@@ -438,7 +438,6 @@ struct drm_crtc *omap_crtc_init(struct drm_device *dev,
 {
 	struct drm_crtc *crtc = NULL;
 	struct omap_crtc *omap_crtc;
-	struct omap_overlay_manager_info *info;
 
 	DBG("%s", channel_names[channel]);
 
@@ -469,11 +468,6 @@ struct drm_crtc *omap_crtc_init(struct drm_device *dev,
 	omap_crtc->name = channel_names[channel];
 	omap_crtc->pipe = id;
 
-	/* TODO: fix hard-coded setup.. add properties! */
-	info->default_color = 0x00000000;
-	info->trans_key = 0x00000000;
-	info->trans_key_type = OMAP_DSS_COLOR_KEY_GFX_DST;
-	info->trans_enabled = false;
 
 	drm_crtc_init(dev, crtc, &omap_crtc_funcs);
 	drm_crtc_helper_add(crtc, &omap_crtc_helper_funcs);
