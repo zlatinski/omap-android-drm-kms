@@ -32,6 +32,7 @@
 static int omap_hdmi_dai_hw_params(struct snd_pcm_substream *substream,
 		struct snd_pcm_hw_params *params)
 {
+#ifdef CONFIG_OMAP2_DSS_HL
 	int i;
 	struct omap_overlay_manager *mgr = NULL;
 	struct device *dev = substream->pcm->card->dev;
@@ -56,6 +57,9 @@ static int omap_hdmi_dai_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	return 0;
+#else //!CONFIG_OMAP2_DSS_HL
+	return -EIO;
+#endif //CONFIG_OMAP2_DSS_HL
 }
 
 static struct snd_soc_ops omap_hdmi_dai_ops = {

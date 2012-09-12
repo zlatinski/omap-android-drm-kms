@@ -359,4 +359,25 @@ int ti_hdmi_5xxx_hdcp_enable(struct hdmi_ip_data *ip_data);
 int ti_hdmi_5xxx_hdcp_disable(struct hdmi_ip_data *ip_data);
 int ti_hdmi_5xxx_hdcp_int_handler(struct hdmi_ip_data *ip_data);
 
-#endif
+static inline void omapdss_fb2dss_timings(struct fb_videomode *fb_timings,
+                        struct omap_video_timings *dss_timings)
+{
+        dss_timings->x_res = fb_timings->xres;
+        dss_timings->y_res = fb_timings->yres;
+        if (fb_timings->vmode & FB_VMODE_INTERLACED)
+                dss_timings->y_res /= 2;
+        dss_timings->pixel_clock = fb_timings->pixclock ?
+                                        PICOS2KHZ(fb_timings->pixclock) : 0;
+        dss_timings->hfp = fb_timings->right_margin;
+        dss_timings->hbp = fb_timings->left_margin;
+        dss_timings->hsw = fb_timings->hsync_len;
+        dss_timings->vfp = fb_timings->lower_margin;
+        dss_timings->vbp = fb_timings->upper_margin;
+        dss_timings->vsw = fb_timings->vsync_len;
+}
+
+typedef irqreturn_t hpd_irq_handler_t(int irq, struct hdmi_ip_data *data, void *user_data);
+
+int ti_hdmi_install_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data);
+int ti_hdmi_uninstall_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data);
+#endif //_TI_HDMI_H

@@ -313,7 +313,9 @@ static void hdmi_panel_disable(struct omap_dss_device *dssdev)
 		compositions and then disable the HDMI panel.
 		*/
 		dssdev->state = OMAP_DSS_DISPLAY_DISABLED;
+#ifdef CONFIG_OMAP2_DSS_HL
 		dssdev->manager->blank(dssdev->manager, true);
+#endif //CONFIG_OMAP2_DSS_HL
 		msleep(100);
 		omapdss_hdmi_display_disable(dssdev);
 	} else
@@ -334,7 +336,9 @@ static int hdmi_panel_suspend(struct omap_dss_device *dssdev)
 	}
 
 	dssdev->state = OMAP_DSS_DISPLAY_SUSPENDED;
+#ifdef CONFIG_OMAP2_DSS_HL
 	dssdev->manager->blank(dssdev->manager, true);
+#endif //CONFIG_OMAP2_DSS_HL
 	msleep(100);
 	omapdss_hdmi_display_disable(dssdev);
 

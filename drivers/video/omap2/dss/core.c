@@ -122,7 +122,7 @@ void dss_dsi_disable_pads(int dsi_id, unsigned lane_mask)
 	return board_data->dsi_disable_pads(dsi_id, lane_mask);
 }
 
-#if defined(CONFIG_DEBUG_FS) && defined(CONFIG_OMAP2_DSS_DEBUG_SUPPORT)
+#if defined(CONFIG_DEBUG_FS) && defined(CONFIG_OMAP2_DSS_DEBUG_SUPPORT) && defined(CONFIG_OMAP2_DSS_HL)
 static int dss_debug_show(struct seq_file *s, void *unused)
 {
 	void (*func)(struct seq_file *) = s->private;
@@ -205,14 +205,13 @@ static inline void dss_uninitialize_debugfs(void)
 /* PLATFORM DEVICE */
 static int omap_dss_probe(struct platform_device *pdev)
 {
-	struct omap_dss_board_info *pdata = pdev->dev.platform_data;
-	int r;
-	int i;
+	int r = 0;
 
 	core.pdev = pdev;
 
 	dss_features_init();
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_apply_init();
 
 	dss_init_overlay_managers(pdev);
@@ -221,46 +220,55 @@ static int omap_dss_probe(struct platform_device *pdev)
 	r = dss_initialize_debugfs();
 	if (r)
 		goto err_debugfs;
+#endif //CONFIG_OMAP2_DSS_HL
 
-	for (i = 0; i < pdata->num_devices; ++i) {
-		struct omap_dss_device *dssdev = pdata->devices[i];
+	{
+		struct omap_dss_board_info *pdata = pdev->dev.platform_data;
+		int i;
+		for (i = 0; i < pdata->num_devices; ++i) {
+			struct omap_dss_device *dssdev = pdata->devices[i];
 
-		r = omap_dss_register_device(dssdev);
-		if (r) {
-			DSSERR("device %d %s register failed %d\n", i,
-				dssdev->name ?: "unnamed", r);
+			r = omap_dss_register_device(dssdev);
+			if (r) {
+				DSSERR("device %d %s register failed %d\n", i,
+					dssdev->name ?: "unnamed", r);
 
-			while (--i >= 0)
-				omap_dss_unregister_device(pdata->devices[i]);
+				while (--i >= 0)
+					omap_dss_unregister_device(pdata->devices[i]);
 
-			goto err_register;
+				goto err_register;
+			}
+
+			if (def_disp_name && strcmp(def_disp_name, dssdev->name) == 0)
+				pdata->default_device = dssdev;
 		}
-
-		if (def_disp_name && strcmp(def_disp_name, dssdev->name) == 0)
-			pdata->default_device = dssdev;
 	}
 
 	return 0;
 
 err_register:
 	dss_uninitialize_debugfs();
+#ifdef CONFIG_OMAP2_DSS_HL
 err_debugfs:
-
+#endif //CONFIG_OMAP2_DSS_HL
 	return r;
 }
 
 static int omap_dss_remove(struct platform_device *pdev)
 {
-	struct omap_dss_board_info *pdata = pdev->dev.platform_data;
-	int i;
-
 	dss_uninitialize_debugfs();
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_uninit_overlays(pdev);
 	dss_uninit_overlay_managers(pdev);
+#endif //CONFIG_OMAP2_DSS_HL
 
-	for (i = 0; i < pdata->num_devices; ++i)
-		omap_dss_unregister_device(pdata->devices[i]);
+	{
+		struct omap_dss_board_info *pdata = pdev->dev.platform_data;
+		int i;
+		for (i = 0; i < pdata->num_devices; ++i)
+			omap_dss_unregister_device(pdata->devices[i]);
+	}
 
 	return 0;
 }
@@ -360,8 +368,6 @@ static int dss_driver_probe(struct device *dev)
 	int r;
 	struct omap_dss_driver *dssdrv = to_dss_driver(dev->driver);
 	struct omap_dss_device *dssdev = to_dss_device(dev);
-	struct omap_dss_board_info *pdata = core.pdev->dev.platform_data;
-	bool force;
 
 	DSSDBG("driver_probe: dev %s/%s, drv %s\n",
 				dev_name(dev), dssdev->driver_name,
@@ -369,8 +375,13 @@ static int dss_driver_probe(struct device *dev)
 
 	dss_init_device(core.pdev, dssdev);
 
-	force = pdata->default_device == dssdev;
-	dss_recheck_connections(dssdev, force);
+#ifdef CONFIG_OMAP2_DSS_HL
+	{
+		struct omap_dss_board_info *pdata = core.pdev->dev.platform_data;
+		bool force = pdata->default_device == dssdev;
+		dss_recheck_connections(dssdev, force);
+	}
+#endif //CONFIG_OMAP2_DSS_HL
 
 	r = dssdrv->probe(dssdev);
 
@@ -491,6 +502,11 @@ static int omap_dss_register_device(struct omap_dss_device *dssdev)
 	WARN_ON(!dssdev->driver_name);
 
 	reset_device(&dssdev->dev, 1);
+	
+#ifndef CONFIG_OMAP2_DSS_HL
+	dssdev->manager_id = OMAP_DSS_CHANNEL_INVALID;
+#endif //CONFIG_OMAP2_DSS_HL
+
 	dssdev->dev.bus = &dss_bus_type;
 	dssdev->dev.parent = &dss_bus;
 	dssdev->dev.release = omap_dss_dev_release;

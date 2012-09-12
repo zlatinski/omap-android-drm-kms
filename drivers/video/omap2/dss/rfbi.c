@@ -310,9 +310,9 @@ static void rfbi_transfer_area(struct omap_dss_device *dssdev, u16 width,
 
 	DSSDBG("rfbi_transfer_area %dx%d\n", width, height);
 
-	dispc_mgr_set_lcd_size(dssdev->manager->id, width, height);
+	dispc_mgr_set_size(dssdev->manager_id, width, height);
 
-	dispc_mgr_enable(dssdev->manager->id, true);
+	dispc_mgr_enable(dssdev->manager_id, true);
 
 	rfbi.framedone_callback = callback;
 	rfbi.framedone_callback_data = data;
@@ -327,6 +327,7 @@ static void rfbi_transfer_area(struct omap_dss_device *dssdev, u16 width,
 	rfbi_write_reg(RFBI_CONTROL, l);
 }
 
+#ifdef CONFIG_OMAP2_DSS_HL
 static void framedone_callback(void *data, u32 mask)
 {
 	void (*callback)(void *data);
@@ -341,6 +342,7 @@ static void framedone_callback(void *data, u32 mask)
 	if (callback != NULL)
 		callback(rfbi.framedone_callback_data);
 }
+#endif //CONFIG_OMAP2_DSS_HL
 
 #if 1 /* VERBOSE */
 static void rfbi_print_timings(void)
@@ -784,7 +786,7 @@ int omap_rfbi_prepare_update(struct omap_dss_device *dssdev,
 	if (*w == 0 || *h == 0)
 		return -EINVAL;
 
-	dispc_mgr_set_lcd_size(dssdev->manager->id, *w, *h);
+	dispc_mgr_set_size(dssdev->manager_id, *w, *h);
 
 	return 0;
 }
@@ -843,7 +845,7 @@ int omapdss_rfbi_display_enable(struct omap_dss_device *dssdev)
 {
 	int r;
 
-	if (dssdev->manager == NULL) {
+	if (dssdev->manager_id == OMAP_DSS_CHANNEL_INVALID) {
 		DSSERR("failed to enable display: no manager\n");
 		return -ENODEV;
 	}
@@ -858,20 +860,22 @@ int omapdss_rfbi_display_enable(struct omap_dss_device *dssdev)
 		goto err0;
 	}
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	r = omap_dispc_register_isr(framedone_callback, NULL,
 			DISPC_IRQ_FRAMEDONE);
 	if (r) {
 		DSSERR("can't get FRAMEDONE irq\n");
 		goto err1;
 	}
+#endif // CONFIG_OMAP2_DSS_HL
 
-	dispc_mgr_set_lcd_display_type(dssdev->manager->id,
+	dispc_mgr_set_lcd_display_type(dssdev->manager_id,
 			OMAP_DSS_LCD_DISPLAY_TFT);
 
 	dispc_mgr_set_io_pad_mode(DSS_IO_PAD_MODE_RFBI);
-	dispc_mgr_enable_stallmode(dssdev->manager->id, true);
+	dispc_mgr_enable_stallmode(dssdev->manager_id, true);
 
-	dispc_mgr_set_tft_data_lines(dssdev->manager->id, dssdev->ctrl.pixel_size);
+	dispc_mgr_set_tft_data_lines(dssdev->manager_id, dssdev->ctrl.pixel_size);
 
 	rfbi_configure(dssdev->phy.rfbi.channel,
 			       dssdev->ctrl.pixel_size,
@@ -882,8 +886,11 @@ int omapdss_rfbi_display_enable(struct omap_dss_device *dssdev)
 
 
 	return 0;
+
+#ifdef CONFIG_OMAP2_DSS_HL
 err1:
 	omap_dss_stop_device(dssdev);
+#endif //CONFIG_OMAP2_DSS_HL
 err0:
 	rfbi_runtime_put();
 	return r;
@@ -892,8 +899,10 @@ EXPORT_SYMBOL(omapdss_rfbi_display_enable);
 
 void omapdss_rfbi_display_disable(struct omap_dss_device *dssdev)
 {
+#ifdef CONFIG_OMAP2_DSS_HL
 	omap_dispc_unregister_isr(framedone_callback, NULL,
 			DISPC_IRQ_FRAMEDONE);
+#endif //CONFIG_OMAP2_DSS_HL
 	omap_dss_stop_device(dssdev);
 
 	rfbi_runtime_put();
