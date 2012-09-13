@@ -700,6 +700,7 @@ struct omap_dss_device {
 	enum omap_display_caps caps;
 
 	struct omap_overlay_manager *manager;
+	enum omap_channel manager_id;
 
 	enum omap_dss_display_state state;
 

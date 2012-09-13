@@ -138,8 +138,6 @@ struct hdcp_wait_control {
 #define RD_FIELD_32(base, offset, start, end) \
 	((RD_REG_32(base, offset) & FLD_MASK(start, end)) >> (end))
 
-#undef DBG
-
 #define HDCP_ERR(format, ...) \
 		printk(KERN_ERR "HDCP: " format "\n", ## __VA_ARGS__)
 

@@ -394,6 +394,10 @@ void dispc_dump_irqs(struct seq_file *s);
 void dispc_dump_regs(struct seq_file *s);
 void dispc_irq_handler(void);
 void dispc_fake_vsync_irq(void);
+u32 dispc_read_irqs(void);
+void dispc_clear_irqs(u32 mask);
+void dispc_set_irqs(u32 mask);
+u32 dispc_error_irqs(void);
 
 int dispc_runtime_get(void);
 void dispc_runtime_put(void);
@@ -424,6 +428,9 @@ void dispc_ovl_compute_fifo_thresholds(enum omap_plane plane,
 int dispc_ovl_setup(enum omap_plane plane, struct omap_overlay_info *oi,
 		bool ilace, bool replication, int x_decim, int y_decim,
 		bool five_taps);
+int dispc_ovl_setup_with_timings(enum omap_plane plane, struct omap_overlay_info *oi,
+		bool ilace, bool replication,
+		const struct omap_video_timings *mgr_timings);
 int dispc_ovl_enable(enum omap_plane plane, bool enable);
 void dispc_ovl_set_channel_out(enum omap_plane plane,
 		enum omap_channel channel);
@@ -435,7 +442,7 @@ void dispc_mgr_setup_color_conv_coef(enum omap_plane plane,
 u32 dispc_mgr_get_vsync_irq(enum omap_channel channel);
 u32 dispc_mgr_get_framedone_irq(enum omap_channel channel);
 bool dispc_mgr_go_busy(enum omap_channel channel);
-void dispc_mgr_go(enum omap_channel channel);
+bool dispc_mgr_go(enum omap_channel channel);
 bool dispc_mgr_is_enabled(enum omap_channel channel);
 void dispc_mgr_enable(enum omap_channel channel, bool enable);
 bool dispc_mgr_is_channel_enabled(enum omap_channel channel);

@@ -64,6 +64,7 @@ enum dss_feat_id {
 	FEAT_OMAP3_DSI_FIFO_BUG,
 	FEAT_DSI_PLL_SELFREQDCO,
 	FEAT_DSI_PLL_REFSEL,
+	FEAT_BURST_2D,
 };
 
 /* DSS register field id */
@@ -116,6 +117,8 @@ int dss_feat_get_dsi_ddr_div(void);
 
 unsigned long dss_feat_get_hdmi_core_sys_offset(void);
 unsigned long dss_feat_get_hdmi_cec_offset(void);
+
+bool dss_feat_rotation_type_supported(enum omap_dss_rotation_type rot_type);
 
 bool dss_has_feature(enum dss_feat_id id);
 void dss_feat_get_reg_field(enum dss_feat_reg_field id, u8 *start, u8 *end);
