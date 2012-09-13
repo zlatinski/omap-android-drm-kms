@@ -1154,6 +1154,52 @@ nouveau_ttm_tt_unpopulate(struct ttm_tt *ttm)
 	ttm_pool_unpopulate(ttm);
 }
 
+void
+nouveau_bo_fence(struct nouveau_bo *nvbo, struct nouveau_fence *fence)
+{
+	struct nouveau_fence *old_fence = NULL;
+
+	if (likely(fence))
+		nouveau_fence_ref(fence);
+
+	spin_lock(&nvbo->bo.bdev->fence_lock);
+	old_fence = nvbo->bo.sync_obj;
+	nvbo->bo.sync_obj = fence;
+	spin_unlock(&nvbo->bo.bdev->fence_lock);
+
+	nouveau_fence_unref(&old_fence);
+}
+
+static void
+nouveau_bo_fence_unref(void **sync_obj)
+{
+	nouveau_fence_unref((struct nouveau_fence **)sync_obj);
+}
+
+static void *
+nouveau_bo_fence_ref(void *sync_obj)
+{
+	return nouveau_fence_ref(sync_obj);
+}
+
+static bool
+nouveau_bo_fence_signalled(void *sync_obj)
+{
+	return nouveau_fence_done(sync_obj);
+}
+
+static int
+nouveau_bo_fence_wait(void *sync_obj, bool lazy, bool intr)
+{
+	return nouveau_fence_wait(sync_obj, lazy, intr);
+}
+
+static int
+nouveau_bo_fence_flush(void *sync_obj)
+{
+	return 0;
+}
+
 struct ttm_bo_driver nouveau_bo_driver = {
 	.ttm_tt_create = &nouveau_ttm_tt_create,
 	.ttm_tt_populate = &nouveau_ttm_tt_populate,
