@@ -103,6 +103,7 @@ int hdmi_runtime_get(void)
 
 	return 0;
 }
+EXPORT_SYMBOL(hdmi_runtime_get);
 
 void hdmi_runtime_put(void)
 {
@@ -113,6 +114,7 @@ void hdmi_runtime_put(void)
 	r = pm_runtime_put_sync(&hdmi.pdev->dev);
 	WARN_ON(r < 0 && r != -ENOSYS);
 }
+EXPORT_SYMBOL(hdmi_runtime_put);
 
 int hdmi_init_display(struct omap_dss_device *dssdev)
 {
@@ -811,6 +813,7 @@ void hdmi_dump_regs(struct seq_file *s)
 	hdmi_runtime_put();
 	mutex_unlock(&hdmi.lock);
 }
+EXPORT_SYMBOL(hdmi_dump_regs);
 
 int omapdss_hdmi_read_edid(u8 *buf, int len)
 {

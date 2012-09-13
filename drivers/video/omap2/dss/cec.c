@@ -408,7 +408,8 @@ static void cec_power_on_cb(int status)
 
 	return;
 }
-static int __init cec_init(void)
+
+int __init cec_init(void)
 {
 	int r = -EFAULT;
 	pr_debug("cec_init() %u", jiffies_to_msecs(jiffies));
@@ -472,7 +473,7 @@ err_register:
  * Function: cec_exit
  *-----------------------------------------------------------------------------
  */
-static void __exit cec_exit(void)
+void __exit cec_exit(void)
 {
 	pr_debug("cec_exit() %u", jiffies_to_msecs(jiffies));
 
@@ -488,8 +489,10 @@ static void __exit cec_exit(void)
 /*-----------------------------------------------------------------------------
  *-----------------------------------------------------------------------------
  */
+#ifndef CONFIG_OMAP2_DSS_MODULE
 module_init(cec_init);
 module_exit(cec_exit);
+#endif
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("OMAP CEC kernel module");
 MODULE_AUTHOR("Muralidhar Dixit");

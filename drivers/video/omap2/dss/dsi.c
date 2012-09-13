@@ -28,6 +28,7 @@
 #include <linux/delay.h>
 #include <linux/mutex.h>
 #include <linux/module.h>
+#include <linux/export.h>
 #include <linux/semaphore.h>
 #include <linux/seq_file.h>
 #include <linux/platform_device.h>
@@ -1797,6 +1798,7 @@ void dsi_dump_clocks(struct seq_file *s)
 			dsi_dump_dsidev_clocks(dsidev, s);
 	}
 }
+EXPORT_SYMBOL(dsi_dump_clocks);
 
 #ifdef CONFIG_OMAP2_DSS_COLLECT_IRQ_STATS
 static void dsi_dump_dsidev_irqs(struct platform_device *dsidev,

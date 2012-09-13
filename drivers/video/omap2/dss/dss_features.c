@@ -21,6 +21,7 @@
 #include <linux/types.h>
 #include <linux/err.h>
 #include <linux/slab.h>
+#include <linux/export.h>
 
 #include <video/omapdss.h>
 #include <plat/cpu.h>
@@ -758,11 +759,13 @@ int dss_feat_get_num_mgrs(void)
 {
 	return omap_current_dss_features->num_mgrs;
 }
+EXPORT_SYMBOL_GPL(dss_feat_get_num_mgrs);
 
 int dss_feat_get_num_ovls(void)
 {
 	return omap_current_dss_features->num_ovls;
 }
+EXPORT_SYMBOL_GPL(dss_feat_get_num_ovls);
 
 unsigned long dss_feat_get_param_min(enum dss_range_param param)
 {
@@ -773,16 +776,19 @@ unsigned long dss_feat_get_param_max(enum dss_range_param param)
 {
 	return omap_current_dss_features->dss_params[param].max;
 }
+EXPORT_SYMBOL(dss_feat_get_param_max);
 
 enum omap_display_type dss_feat_get_supported_displays(enum omap_channel channel)
 {
 	return omap_current_dss_features->supported_displays[channel];
 }
+EXPORT_SYMBOL_GPL(dss_feat_get_supported_displays);
 
 enum omap_color_mode dss_feat_get_supported_color_modes(enum omap_plane plane)
 {
 	return omap_current_dss_features->supported_color_modes[plane];
 }
+EXPORT_SYMBOL_GPL(dss_feat_get_supported_color_modes);
 
 enum omap_overlay_caps dss_feat_get_overlay_caps(enum omap_plane plane)
 {
@@ -840,6 +846,7 @@ bool dss_has_feature(enum dss_feat_id id)
 
 	return false;
 }
+EXPORT_SYMBOL(dss_feat_get_hdmi_cec_offset);
 
 void dss_feat_get_reg_field(enum dss_feat_reg_field id, u8 *start, u8 *end)
 {

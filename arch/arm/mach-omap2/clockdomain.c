@@ -15,6 +15,7 @@
 
 #include <linux/kernel.h>
 #include <linux/device.h>
+#include <linux/export.h>
 #include <linux/list.h>
 #include <linux/errno.h>
 #include <linux/string.h>
@@ -389,6 +390,7 @@ struct clockdomain *clkdm_lookup(const char *name)
 
 	return clkdm;
 }
+EXPORT_SYMBOL(clkdm_lookup);
 
 /**
  * clkdm_for_each - call function on each registered clockdomain
@@ -847,6 +849,7 @@ void clkdm_allow_idle(struct clockdomain *clkdm)
 	pwrdm_clkdm_state_switch(clkdm);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 }
+EXPORT_SYMBOL(clkdm_allow_idle);
 
 /**
  * clkdm_deny_idle - disable hwsup idle transitions for clkdm
@@ -883,6 +886,7 @@ void clkdm_deny_idle(struct clockdomain *clkdm)
 	pwrdm_state_switch(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 }
+EXPORT_SYMBOL(clkdm_deny_idle);
 
 /**
  * clkdm_in_hwsup - is clockdomain @clkdm have hardware-supervised idle enabled?

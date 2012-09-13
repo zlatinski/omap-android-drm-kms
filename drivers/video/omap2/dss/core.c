@@ -636,6 +636,14 @@ static void __exit omap_dss_unregister_drivers(void)
 }
 
 #ifdef CONFIG_OMAP2_DSS_MODULE
+
+extern int __init hdcp_init(void);
+extern void __exit hdcp_exit(void);
+
+extern int __init cec_init(void);
+extern void __exit cec_exit(void);
+
+
 static void omap_dss_bus_unregister(void)
 {
 	device_unregister(&dss_bus);
@@ -657,11 +665,20 @@ static int __init omap_dss_init(void)
 		return r;
 	}
 
+	hdcp_init();
+
+	cec_init();
+
 	return 0;
 }
 
 static void __exit omap_dss_exit(void)
 {
+
+	cec_exit();
+
+	hdcp_exit();
+
 	if (core.vdds_dsi_reg != NULL) {
 		regulator_put(core.vdds_dsi_reg);
 		core.vdds_dsi_reg = NULL;

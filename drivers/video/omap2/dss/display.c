@@ -367,6 +367,7 @@ void omapdss_display_get_dimensions(struct omap_dss_device *dssdev,
 		*height_in_um = dssdev->panel.height_in_um;
 	}
 }
+EXPORT_SYMBOL(omapdss_display_get_dimensions);
 
 int omapdss_default_get_recommended_bpp(struct omap_dss_device *dssdev)
 {
