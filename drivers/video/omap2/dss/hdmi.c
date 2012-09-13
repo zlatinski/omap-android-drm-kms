@@ -424,7 +424,7 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 		}
 	}
 
-	omapfb_fb2dss_timings(&hdmi.ip_data.cfg.timings,
+	omapdss_fb2dss_timings(&hdmi.ip_data.cfg.timings,
 					&dssdev->panel.timings);
 
 	switch (hdmi.ip_data.cfg.deep_color) {
@@ -620,12 +620,28 @@ int omapdss_hdmi_unregister_cec_callbacks(void)
 	return 0;
 }
 
+static void omapdss_dss2fb_timings(struct omap_video_timings *dss_timings,
+                        struct fb_videomode *fb_timings)
+{
+        memset(fb_timings, 0, sizeof(*fb_timings));
+        fb_timings->xres = dss_timings->x_res;
+        fb_timings->yres = dss_timings->y_res;
+        fb_timings->pixclock = dss_timings->pixel_clock ?
+                                        KHZ2PICOS(dss_timings->pixel_clock) : 0;
+        fb_timings->right_margin = dss_timings->hfp;
+        fb_timings->left_margin = dss_timings->hbp;
+        fb_timings->hsync_len = dss_timings->hsw;
+        fb_timings->lower_margin = dss_timings->vfp;
+        fb_timings->upper_margin = dss_timings->vbp;
+        fb_timings->vsync_len = dss_timings->vsw;
+}
+
 int omapdss_hdmi_display_check_timing(struct omap_dss_device *dssdev,
 					struct omap_video_timings *timings)
 {
 	struct fb_videomode t;
 
-	omapfb_dss2fb_timings(timings, &t);
+	omapdss_dss2fb_timings(timings, &t);
 
 	/* also check interlaced timings */
 	if (!hdmi_set_timings(&t, true)) {
@@ -773,7 +789,7 @@ err0:
 void omapdss_hdmi_display_set_timing(struct omap_dss_device *dssdev)
 {
 	struct fb_videomode t;
-	omapfb_dss2fb_timings(&dssdev->panel.timings, &t);
+	omapdss_dss2fb_timings(&dssdev->panel.timings, &t);
 	/* also check interlaced timings */
 	if (!hdmi_set_timings(&t, true)) {
 		t.yres *= 2;
