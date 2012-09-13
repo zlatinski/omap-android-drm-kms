@@ -2,6 +2,7 @@ menuconfig SGX_OMAPLFB
 	tristate "SGX omaplfb support"
 	depends on OMAP_DSSCOMP
 	select OMAPLFB
+	select FB_OMAP2
 	default n
 	help
 	  Support for in-kernel omaplfb. This is an interface between display and the
