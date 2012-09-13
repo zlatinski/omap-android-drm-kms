@@ -417,7 +417,7 @@ static const struct file_operations hdcp_fops = {
 	.unlocked_ioctl = hdcp_ioctl,
 };
 
-static int __init hdcp_init(void)
+int __init hdcp_init(void)
 {
 	HDCP_DBG("hdcp_init() %ums\n", jiffies_to_msecs(jiffies));
 
@@ -509,7 +509,7 @@ err_alloc_mdev:
 	return -EFAULT;
 }
 
-static void __exit hdcp_exit(void)
+void __exit hdcp_exit(void)
 {
 	HDCP_DBG("hdcp_exit() %ums\n", jiffies_to_msecs(jiffies));
 
@@ -545,8 +545,10 @@ err_handling:
 	kfree(hdcp);
 }
 
+#ifndef CONFIG_OMAP2_DSS_MODULE
 module_init(hdcp_init);
 module_exit(hdcp_exit);
+#endif
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("OMAP HDCP kernel module");
 MODULE_AUTHOR("Sujeet Baranwal");

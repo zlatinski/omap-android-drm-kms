@@ -129,6 +129,7 @@
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
+#include <linux/export.h>
 #include <linux/io.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -2183,6 +2184,7 @@ int omap_hwmod_set_slave_idlemode(struct omap_hwmod *oh, u8 idlemode)
 
 	return retval;
 }
+EXPORT_SYMBOL(omap_hwmod_set_slave_idlemode);
 
 /**
  * omap_hwmod_lookup - look up a registered omap_hwmod by name
@@ -2202,6 +2204,7 @@ struct omap_hwmod *omap_hwmod_lookup(const char *name)
 
 	return oh;
 }
+EXPORT_SYMBOL(omap_hwmod_lookup);
 
 /**
  * omap_hwmod_for_each - call function for each registered omap_hwmod
