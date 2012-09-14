@@ -390,12 +390,8 @@ validate_sync(struct nouveau_channel *chan, struct nouveau_bo *nvbo)
 	struct nouveau_fence *fence = NULL;
 	int ret = 0;
 
-	spin_lock(&nvbo->bo.bdev->fence_lock);
-	if (nvbo->bo.sync_obj)
+	if (nvbo->bo.sync_obj) {
 		fence = nouveau_fence_ref(nvbo->bo.sync_obj);
-	spin_unlock(&nvbo->bo.bdev->fence_lock);
-
-	if (fence) {
 		ret = nouveau_fence_sync(fence, chan);
 		nouveau_fence_unref(&fence);
 	}
@@ -610,9 +606,7 @@ nouveau_gem_pushbuf_reloc_apply(struct drm_device *dev,
 				data |= r->vor;
 		}
 
-		spin_lock(&nvbo->bo.bdev->fence_lock);
 		ret = ttm_bo_wait(&nvbo->bo, false, false, false);
-		spin_unlock(&nvbo->bo.bdev->fence_lock);
 		if (ret) {
 			NV_ERROR(dev, "reloc wait_idle failed: %d\n", ret);
 			break;
@@ -842,9 +836,7 @@ nouveau_gem_ioctl_cpu_prep(struct drm_device *dev, void *data,
 
 	ret = ttm_bo_reserve(&nvbo->bo, true, false, false, 0);
 	if (!ret) {
-		spin_lock(&nvbo->bo.bdev->fence_lock);
 		ret = ttm_bo_wait(&nvbo->bo, true, true, no_wait);
-		spin_unlock(&nvbo->bo.bdev->fence_lock);
 
 		ttm_bo_unreserve(&nvbo->bo);
 	}

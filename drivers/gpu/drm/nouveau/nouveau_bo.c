@@ -1162,10 +1162,8 @@ nouveau_bo_fence(struct nouveau_bo *nvbo, struct nouveau_fence *fence)
 	if (likely(fence))
 		nouveau_fence_ref(fence);
 
-	spin_lock(&nvbo->bo.bdev->fence_lock);
 	old_fence = nvbo->bo.sync_obj;
 	nvbo->bo.sync_obj = fence;
-	spin_unlock(&nvbo->bo.bdev->fence_lock);
 
 	nouveau_fence_unref(&old_fence);
 }
@@ -1265,9 +1263,7 @@ nouveau_bo_vma_del(struct nouveau_bo *nvbo, struct nouveau_vma *vma)
 	if (vma->node) {
 		if (nvbo->bo.mem.mem_type != TTM_PL_SYSTEM) {
 			ttm_bo_reserve(&nvbo->bo, false, false, false, 0);
-			spin_lock(&nvbo->bo.bdev->fence_lock);
 			ttm_bo_wait(&nvbo->bo, false, false, false);
-			spin_unlock(&nvbo->bo.bdev->fence_lock);
 			ttm_bo_unreserve(&nvbo->bo);
 			nouveau_vm_unmap(vma);
 		}

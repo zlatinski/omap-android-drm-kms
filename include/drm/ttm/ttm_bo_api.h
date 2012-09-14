@@ -222,6 +222,8 @@ struct ttm_buffer_object {
 	struct file *persistent_swap_storage;
 	struct ttm_tt *ttm;
 	bool evicted;
+	void *sync_obj;
+	unsigned long priv_flags;
 
 	/**
 	 * Members protected by the bdev::lru_lock.
@@ -240,16 +242,6 @@ struct ttm_buffer_object {
 	 */
 
 	atomic_t reserved;
-
-	/**
-	 * Members protected by struct buffer_object_device::fence_lock
-	 * In addition, setting sync_obj to anything else
-	 * than NULL requires bo::reserved to be held. This allows for
-	 * checking NULL while reserved but not holding the mentioned lock.
-	 */
-
-	void *sync_obj;
-	unsigned long priv_flags;
 
 	/**
 	 * Members protected by the bdev::vm_lock
