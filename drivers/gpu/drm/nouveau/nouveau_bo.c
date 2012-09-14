@@ -1264,9 +1264,25 @@ nouveau_bo_vma_del(struct nouveau_bo *nvbo, struct nouveau_vma *vma)
 {
 	if (vma->node) {
 		if (nvbo->bo.mem.mem_type != TTM_PL_SYSTEM) {
+			ttm_bo_reserve(&nvbo->bo, false, false, false, 0);
 			spin_lock(&nvbo->bo.bdev->fence_lock);
 			ttm_bo_wait(&nvbo->bo, false, false, false);
 			spin_unlock(&nvbo->bo.bdev->fence_lock);
+			ttm_bo_unreserve(&nvbo->bo);
+			nouveau_vm_unmap(vma);
+		}
+
+		nouveau_vm_put(vma);
+		list_del(&vma->head);
+	}
+}
+
+void
+nouveau_bo_vma_del_reserved(struct nouveau_bo *nvbo, struct nouveau_vma *vma)
+{
+	if (vma->node) {
+		if (nvbo->bo.mem.mem_type != TTM_PL_SYSTEM) {
+			ttm_bo_wait(&nvbo->bo, false, false, false);
 			nouveau_vm_unmap(vma);
 		}
 
