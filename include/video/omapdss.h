@@ -52,7 +52,9 @@
 #define DISPC_IRQ_WBBUFFEROVERFLOW	(1 << 25)
 
 struct omap_dss_device;
+#ifdef CONFIG_OMAP2_DSS_HL
 struct omap_overlay_manager;
+#endif //CONFIG_OMAP2_DSS_HL
 
 enum omap_display_type {
 	OMAP_DISPLAY_TYPE_NONE		= 0,
@@ -72,6 +74,7 @@ enum omap_plane {
 };
 
 enum omap_channel {
+	OMAP_DSS_CHANNEL_INVALID = -1,
 	OMAP_DSS_CHANNEL_LCD	= 0,
 	OMAP_DSS_CHANNEL_DIGIT	= 1,
 	OMAP_DSS_CHANNEL_LCD2	= 2,
@@ -184,9 +187,9 @@ enum omap_dss_overlay_managers {
 };
 
 enum omap_dss_rotation_type {
-	OMAP_DSS_ROT_DMA = 0,
-	OMAP_DSS_ROT_VRFB = 1,
-	OMAP_DSS_ROT_TILER = 2,
+	OMAP_DSS_ROT_DMA	= 1 << 0,
+	OMAP_DSS_ROT_VRFB	= 1 << 1,
+	OMAP_DSS_ROT_TILER	= 1 << 2,
 };
 
 /* clockwise rotation angle */
@@ -472,6 +475,7 @@ struct omap_overlay_info {
 	struct omap_dss_cconv_coefs cconv;
 };
 
+#ifdef CONFIG_OMAP2_DSS_HL
 struct omap_overlay {
 	struct kobject kobj;
 	struct list_head list;
@@ -512,6 +516,7 @@ struct omap_overlay {
 
 	int (*wait_for_go)(struct omap_overlay *ovl);
 };
+#endif //CONFIG_OMAP2_DSS_HL
 
 struct omap_overlay_manager_info {
 	u32 default_color;
@@ -528,6 +533,7 @@ struct omap_overlay_manager_info {
 	struct omapdss_ovl_cb cb;
 };
 
+#ifdef CONFIG_OMAP2_DSS_HL
 struct omap_overlay_manager {
 	struct kobject kobj;
 
@@ -574,6 +580,7 @@ struct omap_overlay_manager {
 	void (*dump_cb)(struct omap_overlay_manager *mgr, struct seq_file *s);
 	int (*set_ovl)(struct omap_overlay_manager *mgr);
 };
+#endif //CONFIG_OMAP2_DSS_HL
 
 struct omap_dss_device {
 	struct device dev;
@@ -699,8 +706,11 @@ struct omap_dss_device {
 
 	enum omap_display_caps caps;
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	struct omap_overlay_manager *manager;
+#else
 	enum omap_channel manager_id;
+#endif
 
 	enum omap_dss_display_state state;
 
@@ -712,6 +722,18 @@ struct omap_dss_device {
 	int (*set_backlight)(struct omap_dss_device *dssdev, int level);
 	int (*get_backlight)(struct omap_dss_device *dssdev);
 };
+
+static inline enum omap_channel
+omap_dss_device_channel(struct omap_dss_device *dssdev)
+{
+#ifdef CONFIG_OMAP2_DSS_HL
+	if (!dssdev->manager)
+		return OMAP_DSS_CHANNEL_INVALID;
+	return dssdev->manager->id;
+#else
+	return dssdev->manager_id;
+#endif
+}
 
 struct omap_dss_hdmi_data
 {

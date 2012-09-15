@@ -187,6 +187,9 @@ int dss_mgr_blank(struct omap_overlay_manager *mgr,
 void seq_print_cbs(struct omap_overlay_manager *mgr,
 		struct seq_file *s);
 int dss_mgr_set_ovls(struct omap_overlay_manager *mgr);
+void dss_mgr_set_timings(struct omap_overlay_manager *mgr,
+		struct omap_video_timings *timings);
+const struct omap_video_timings *dss_mgr_get_timings(struct omap_overlay_manager *mgr);
 
 bool dss_ovl_is_enabled(struct omap_overlay *ovl);
 int dss_ovl_enable(struct omap_overlay *ovl);

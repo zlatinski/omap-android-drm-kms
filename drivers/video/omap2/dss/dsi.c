@@ -1305,7 +1305,7 @@ static int dsi_calc_clock_rates(struct omap_dss_device *dssdev,
 		 * with DSS_SYS_CLK source also */
 		cinfo->highfreq = 0;
 	} else {
-		cinfo->clkin = dispc_mgr_pclk_rate(dssdev->manager->id);
+		cinfo->clkin = dispc_mgr_pclk_rate(dssdev->manager_id);
 
 		if (cinfo->clkin < 32000000)
 			cinfo->highfreq = 0;
@@ -4217,7 +4217,6 @@ int dsi_enable_video_output(struct omap_dss_device *dssdev, int channel)
 	int bpp = dsi_get_pixel_size(dssdev->panel.dsi_pix_fmt);
 	u8 data_type;
 	u16 word_count;
-	int r;
 
 	if (dssdev->panel.dsi_mode == OMAP_DSS_DSI_VIDEO_MODE) {
 		switch (dssdev->panel.dsi_pix_fmt) {
@@ -4253,15 +4252,21 @@ int dsi_enable_video_output(struct omap_dss_device *dssdev, int channel)
 	}
 
 	dsi_handle_lcd_en_timing_pre(dssdev);
-	r = dss_mgr_enable(dssdev->manager);
-	if (r) {
-		if (dssdev->panel.dsi_mode == OMAP_DSS_DSI_VIDEO_MODE) {
-			dsi_if_enable(dsidev, false);
-			dsi_vc_enable(dsidev, channel, false);
-		}
 
-		return r;
+#ifdef CONFIG_OMAP2_DSS_HL
+	{
+		int r;
+		r = dss_mgr_enable(dssdev->manager);
+		if (r) {
+			if (dssdev->panel.dsi_mode == OMAP_DSS_DSI_VIDEO_MODE) {
+				dsi_if_enable(dsidev, false);
+				dsi_vc_enable(dsidev, channel, false);
+			}
+
+			return r;
+		}
 	}
+#endif //CONFIG_OMAP2_DSS_HL
 	dsi_handle_lcd_en_timing_post(dssdev);
 	return 0;
 }
@@ -4282,7 +4287,11 @@ void dsi_disable_video_output(struct omap_dss_device *dssdev, int channel)
 		dsi_if_enable(dsidev, true);
 	}
 	dsi_handle_lcd_en_timing_pre(dssdev);
+
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_mgr_disable(dssdev->manager);
+#endif //CONFIG_OMAP2_DSS_HL
+
 	dsi_handle_lcd_en_timing_post(dssdev);
 }
 EXPORT_SYMBOL(dsi_disable_video_output);
@@ -4352,7 +4361,10 @@ static void dsi_update_screen_dispc(struct omap_dss_device *dssdev,
 	BUG_ON(r == 0);
 	dsi_handle_lcd_en_timing_pre(dssdev);
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_mgr_start_update(dssdev->manager);
+#endif // CONFIG_OMAP2_DSS_HL
+
 	dsi_handle_lcd_en_timing_post(dssdev);
 
 	if (dsi->te_enabled) {
@@ -4409,6 +4421,7 @@ static void dsi_framedone_timeout_work_callback(struct work_struct *work)
 	dsi_handle_framedone(dsi->pdev, -ETIMEDOUT);
 }
 
+#ifdef CONFIG_OMAP2_DSS_HL
 static void dsi_framedone_irq_callback(void *data, u32 mask)
 {
 	struct omap_dss_device *dssdev = (struct omap_dss_device *) data;
@@ -4428,6 +4441,7 @@ static void dsi_framedone_irq_callback(void *data, u32 mask)
 	dispc_fake_vsync_irq();
 #endif
 }
+#endif // CONFIG_OMAP2_DSS_HL
 
 int omap_dsi_update(struct omap_dss_device *dssdev, int channel,
 		void (*callback)(int, void *), void *data)
@@ -4459,7 +4473,7 @@ EXPORT_SYMBOL(omap_dsi_update);
 
 static int dsi_display_init_dispc(struct omap_dss_device *dssdev)
 {
-	int r;
+	int r = 0;
 
 	if (dssdev->panel.dsi_mode == OMAP_DSS_DSI_CMD_MODE) {
 		u16 dw, dh;
@@ -4477,33 +4491,35 @@ static int dsi_display_init_dispc(struct omap_dss_device *dssdev)
 		timings.x_res = dw;
 		timings.y_res = dh;
 
-		irq = dssdev->manager->id == OMAP_DSS_CHANNEL_LCD ?
+		irq = dssdev->manager_id == OMAP_DSS_CHANNEL_LCD ?
 			DISPC_IRQ_FRAMEDONE : DISPC_IRQ_FRAMEDONE2;
 
+#ifdef CONFIG_OMAP2_DSS_HL
 		r = omap_dispc_register_isr(dsi_framedone_irq_callback,
 			(void *) dssdev, irq);
 		if (r) {
 			DSSERR("can't get FRAMEDONE irq\n");
 			return r;
 		}
+#endif // CONFIG_OMAP2_DSS_HL
 
-		dispc_mgr_enable_stallmode(dssdev->manager->id, true);
-		dispc_mgr_enable_fifohandcheck(dssdev->manager->id, 1);
+		dispc_mgr_enable_stallmode(dssdev->manager_id, true);
+		dispc_mgr_enable_fifohandcheck(dssdev->manager_id, 1);
 
-		dispc_mgr_set_lcd_timings(dssdev->manager->id, &timings);
+		dispc_mgr_set_lcd_timings(dssdev->manager_id, &timings);
 	} else {
-		dispc_mgr_enable_stallmode(dssdev->manager->id, false);
-		dispc_mgr_enable_fifohandcheck(dssdev->manager->id, 0);
+		dispc_mgr_enable_stallmode(dssdev->manager_id, false);
+		dispc_mgr_enable_fifohandcheck(dssdev->manager_id, 0);
 
-		dispc_mgr_set_lcd_timings(dssdev->manager->id,
+		dispc_mgr_set_lcd_timings(dssdev->manager_id,
 			&dssdev->panel.timings);
 	}
 
-		dispc_mgr_set_lcd_display_type(dssdev->manager->id,
+		dispc_mgr_set_lcd_display_type(dssdev->manager_id,
 			OMAP_DSS_LCD_DISPLAY_TFT);
-		dispc_mgr_set_tft_data_lines(dssdev->manager->id,
+		dispc_mgr_set_tft_data_lines(dssdev->manager_id,
 			dsi_get_pixel_size(dssdev->panel.dsi_pix_fmt));
-	return 0;
+	return r;
 }
 
 static void dsi_display_uninit_dispc(struct omap_dss_device *dssdev)
@@ -4511,11 +4527,13 @@ static void dsi_display_uninit_dispc(struct omap_dss_device *dssdev)
 	if (dssdev->panel.dsi_mode == OMAP_DSS_DSI_CMD_MODE) {
 		u32 irq;
 
-		irq = dssdev->manager->id == OMAP_DSS_CHANNEL_LCD ?
+		irq = dssdev->manager_id == OMAP_DSS_CHANNEL_LCD ?
 			DISPC_IRQ_FRAMEDONE : DISPC_IRQ_FRAMEDONE2;
 
+#ifdef CONFIG_OMAP2_DSS_HL
 		omap_dispc_unregister_isr(dsi_framedone_irq_callback,
 			(void *) dssdev, irq);
+#endif //CONFIG_OMAP2_DSS_HL
 	}
 }
 
@@ -4564,7 +4582,7 @@ static int dsi_configure_dispc_clocks(struct omap_dss_device *dssdev)
 		return r;
 	}
 
-	r = dispc_mgr_set_clock_div(dssdev->manager->id, &dispc_cinfo);
+	r = dispc_mgr_set_clock_div(dssdev->manager_id, &dispc_cinfo);
 	if (r) {
 		DSSERR("Failed to set dispc clocks\n");
 		return r;
@@ -4595,7 +4613,7 @@ static int dsi_display_init_dsi(struct omap_dss_device *dssdev)
 
 	dss_select_dispc_clk_source(dssdev->clocks.dispc.dispc_fclk_src);
 	dss_select_dsi_clk_source(dsi_module, dssdev->clocks.dsi.dsi_fclk_src);
-	dss_select_lcd_clk_source(dssdev->manager->id,
+	dss_select_lcd_clk_source(dssdev->manager_id,
 			dssdev->clocks.dispc.channel.lcd_clk_src);
 
 	DSSDBG("PLL OK\n");
@@ -4634,7 +4652,7 @@ err3:
 err2:
 	dss_select_dispc_clk_source(OMAP_DSS_CLK_SRC_FCK);
 	dss_select_dsi_clk_source(dsi_module, OMAP_DSS_CLK_SRC_FCK);
-	dss_select_lcd_clk_source(dssdev->manager->id, OMAP_DSS_CLK_SRC_FCK);
+	dss_select_lcd_clk_source(dssdev->manager_id, OMAP_DSS_CLK_SRC_FCK);
 
 err1:
 	dsi_pll_uninit(dsidev, true);
@@ -4661,7 +4679,7 @@ static void dsi_display_uninit_dsi(struct omap_dss_device *dssdev,
 
 	dss_select_dispc_clk_source(OMAP_DSS_CLK_SRC_FCK);
 	dss_select_dsi_clk_source(dsi_module, OMAP_DSS_CLK_SRC_FCK);
-	dss_select_lcd_clk_source(dssdev->manager->id, OMAP_DSS_CLK_SRC_FCK);
+	dss_select_lcd_clk_source(dssdev->manager_id, OMAP_DSS_CLK_SRC_FCK);
 	dsi_cio_uninit(dssdev);
 	dsi_pll_uninit(dsidev, disconnect_lanes);
 }
@@ -4678,7 +4696,7 @@ int omapdss_dsi_display_enable(struct omap_dss_device *dssdev)
 
 	mutex_lock(&dsi->lock);
 
-	if (dssdev->manager == NULL) {
+	if (dssdev->manager_id == OMAP_DSS_CHANNEL_INVALID) {
 		DSSERR("failed to enable display: no manager\n");
 		r = -ENODEV;
 		goto err_start_dev;

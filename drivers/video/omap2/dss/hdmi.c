@@ -112,7 +112,7 @@ void hdmi_runtime_put(void)
 	DSSDBG("hdmi_runtime_put\n");
 
 	r = pm_runtime_put_sync(&hdmi.pdev->dev);
-	WARN_ON(r < 0);
+	WARN_ON(r < 0 && r != -ENOSYS);
 }
 EXPORT_SYMBOL(hdmi_runtime_put);
 
@@ -401,7 +401,9 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 			goto err;
 	}
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_mgr_disable(dssdev->manager);
+#endif //CONFIG_OMAP2_DSS_HL
 
 	p = &dssdev->panel.timings;
 
@@ -493,17 +495,21 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 	if (hdmi.hdcp && hdmi.hdmi_start_frame_cb)
 		(*hdmi.hdmi_start_frame_cb)();
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	r = dss_mgr_enable(dssdev->manager);
 	if (r)
 		goto err_mgr_enable;
+#endif //CONFIG_OMAP2_DSS_HL
 
 	return 0;
 
+#ifdef CONFIG_OMAP2_DSS_HL
 err_mgr_enable:
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 0);
 	hdmi.ip_data.set_mode = false;
 	hdmi.ip_data.ops->phy_disable(&hdmi.ip_data);
 	hdmi.ip_data.ops->pll_disable(&hdmi.ip_data);
+#endif // CONFIG_OMAP2_DSS_HL
 err:
 	hdmi_runtime_put();
 	return -EIO;
@@ -511,7 +517,9 @@ err:
 
 static void hdmi_power_off(struct omap_dss_device *dssdev)
 {
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_mgr_disable(dssdev->manager);
+#endif // CONFIG_OMAP2_DSS_HL
 
 	hdmi.ip_data.ops->hdcp_disable(&hdmi.ip_data);
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 0);
@@ -706,7 +714,7 @@ int omapdss_hdmi_display_3d_enable(struct omap_dss_device *dssdev,
 
 	mutex_lock(&hdmi.lock);
 
-	if (dssdev->manager == NULL) {
+	if (dssdev->manager_id == OMAP_DSS_CHANNEL_INVALID) {
 		DSSERR("failed to enable display: no manager\n");
 		r = -ENODEV;
 		goto err0;
@@ -1005,7 +1013,7 @@ int omapdss_hdmi_display_enable(struct omap_dss_device *dssdev)
 
 	mutex_lock(&hdmi.lock);
 
-	if (dssdev->manager == NULL) {
+	if (dssdev->manager_id == OMAP_DSS_CHANNEL_INVALID) {
 		DSSERR("failed to enable display: no manager\n");
 		r = -ENODEV;
 		goto err0;

@@ -314,22 +314,29 @@ int drm_irq_install(struct drm_device *dev)
 	unsigned long sh_flags = 0;
 	char *irqname;
 
-	if (!drm_core_check_feature(dev, DRIVER_HAVE_IRQ))
+	if (!drm_core_check_feature(dev, DRIVER_HAVE_IRQ)) {
+		dev_err(dev->dev, "Driver does NOT have IRQ\n");
 		return -EINVAL;
+	}
 
-	if (drm_dev_to_irq(dev) == 0)
+	if (drm_dev_to_irq(dev) == 0) {
+		dev_err(dev->dev, "Driver does NOT have valid IRQ %d\n",
+				drm_dev_to_irq(dev));
 		return -EINVAL;
+	}
 
 	mutex_lock(&dev->struct_mutex);
 
 	/* Driver must have been initialized */
 	if (!dev->dev_private) {
 		mutex_unlock(&dev->struct_mutex);
+		dev_err(dev->dev, "Driver must have been initialized\n");
 		return -EINVAL;
 	}
 
 	if (dev->irq_enabled) {
 		mutex_unlock(&dev->struct_mutex);
+		dev_err(dev->dev, "Driver's IRQ is enabled\n");
 		return -EBUSY;
 	}
 	dev->irq_enabled = 1;
@@ -357,6 +364,7 @@ int drm_irq_install(struct drm_device *dev)
 		mutex_lock(&dev->struct_mutex);
 		dev->irq_enabled = 0;
 		mutex_unlock(&dev->struct_mutex);
+		dev_err(dev->dev, "request_irq ERROR 0x%x\n", ret);
 		return ret;
 	}
 
@@ -374,6 +382,7 @@ int drm_irq_install(struct drm_device *dev)
 		if (!drm_core_check_feature(dev, DRIVER_MODESET))
 			vga_client_register(dev->pdev, NULL, NULL, NULL);
 		free_irq(drm_dev_to_irq(dev), dev);
+		dev_err(dev->dev, "irq_postinstall ERROR 0x%x\n", ret);
 	}
 
 	return ret;
