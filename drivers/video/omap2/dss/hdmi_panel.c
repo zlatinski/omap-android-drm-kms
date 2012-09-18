@@ -19,6 +19,8 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define DSS_SUBSYS_NAME "HDMI_PANEL"
+
 #include <linux/kernel.h>
 #include <linux/err.h>
 #include <linux/io.h>
@@ -43,6 +45,72 @@ static struct {
 #endif
 } hdmi;
 
+#ifndef CONFIG_OMAP2_DSS_HL
+static int hdmi_check_hpd_state(int hpd)
+{
+//	struct hdmi_ip_data *ip_data = get_hdmi_ip_data();
+	int ret = 0;
+	DSSINFO("==> %s FIXME PHY", __func__);
+#if 0
+	if(ip_data->ops)
+	{
+		ret = ip_data->ops->set_phy(ip_data, (bool)hpd) ;
+		if (ret) {
+			DSSERR("Failed to %s PHY TX power\n",
+				hpd ? "enable" : "disable");
+		}
+	}
+#endif
+	DSSINFO("<== %s", __func__);
+	return ret;
+}
+
+static hpd_irq_handler_t* hdmi_external_irq_handler;
+static void* hdmi_external_irq_handler_data;
+static DEFINE_SPINLOCK(manage_external_irq_handler_lock);
+
+int ti_hdmi_install_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void* user_data)
+{
+	unsigned long flags;
+	int hpd;
+
+	DSSINFO("==> %s HDP %d", __func__, hdmi_get_current_hpd());
+	spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+	hdmi_external_irq_handler_data = user_data;
+	hdmi_external_irq_handler = irq_handler;
+
+	spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+
+	hpd = hdmi_get_current_hpd();
+
+	if(hdmi_external_irq_handler)
+	{
+		hdmi_external_irq_handler(gpio_to_irq(hdmi.hpd_gpio),
+				hdmi_external_irq_handler_data);
+	}
+
+	DSSINFO("<== %s", __func__);
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_install_external_hpd_irq_handler);
+
+int ti_hdmi_uninstall_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data)
+{
+	unsigned long flags;
+	DSSINFO("==> %s", __func__);
+	spin_lock_irqsave(&manage_external_irq_handler_lock, flags);
+
+	hdmi_external_irq_handler_data = NULL;
+	hdmi_external_irq_handler = NULL;
+
+	spin_unlock_irqrestore(&manage_external_irq_handler_lock, flags);
+	DSSINFO("<== %s", __func__);
+	return 0;
+}
+EXPORT_SYMBOL(ti_hdmi_uninstall_external_hpd_irq_handler);
+#endif // !CONFIG_OMAP2_DSS_HL
+
 int hdmi_get_current_hpd(void)
 {
 	return gpio_get_value(hdmi.hpd_gpio);
@@ -52,8 +120,26 @@ static irqreturn_t hpd_enable_handler(int irq, void *ptr)
 {
 	int hpd = hdmi_get_current_hpd();
 
+	DSSINFO("==> %s", __func__);
+
+#ifdef CONFIG_OMAP2_DSS_HL
 	pr_info("hpd %d\n", hpd);
 	hdmi_panel_hpd_handler(hpd);
+#else
+	if(hdmi_external_irq_handler)
+	{
+		hdmi_external_irq_handler(irq,
+				hdmi_external_irq_handler_data);
+	}
+	else
+	{
+		DSSINFO("%s: NO HPD Handler is Installed", __func__);
+	}
+
+	hdmi_check_hpd_state(hpd);
+#endif //CONFIG_OMAP2_DSS_HL
+
+	DSSINFO("<== %s", __func__);
 
 	return IRQ_HANDLED;
 }
@@ -374,6 +460,7 @@ enum {
 	HPD_STATE_EDID_READ_OK = HPD_STATE_EDID_TRYLAST + 1,
 };
 
+#ifdef CONFIG_OMAP2_DSS_HL
 static struct hpd_worker_data {
 	struct delayed_work dwork;
 	atomic_t state;
@@ -397,7 +484,9 @@ static void hdmi_hotplug_detect_worker(struct work_struct *work)
 
 	/* Make sure it is not a debounce */
 	if (!hdmi_get_current_hpd() && state == HPD_STATE_START)
+	{
 		state = HPD_STATE_OFF;
+	}
 
 	if (state == HPD_STATE_OFF) {
 		switch_set_state(&hdmi.hpd_switch, 0);
@@ -469,6 +558,12 @@ int hdmi_panel_hpd_handler(int hpd)
 					msecs_to_jiffies(hpd ? 500 : 30));
 	return 0;
 }
+#else
+int hdmi_panel_hpd_handler(int hpd)
+{
+	return 0;
+}
+#endif // CONFIG_OMAP2_DSS_HL
 
 int hdmi_panel_set_mode(struct fb_videomode *vm, int code, int mode)
 {
@@ -676,6 +771,7 @@ int hdmi_panel_init(void)
 	/* Init switch state to zero */
 	switch_set_state(&hdmi.hpd_switch, 0);
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	my_workq = create_singlethread_workqueue("hdmi_hotplug");
 	if (!my_workq) {
 		r = -EINVAL;
@@ -683,19 +779,25 @@ int hdmi_panel_init(void)
 	}
 
 	INIT_DELAYED_WORK(&hpd_work.dwork, hdmi_hotplug_detect_worker);
+#endif // CONFIG_OMAP2_DSS_HL
+
 	omap_dss_register_driver(&hdmi_driver);
 
 	return 0;
 
+#ifdef CONFIG_OMAP2_DSS_HL
 err_work:
 	switch_dev_unregister(&hdmi.hpd_switch);
+#endif // CONFIG_OMAP2_DSS_HL
 err_event:
 	return r;
 }
 
 void hdmi_panel_exit(void)
 {
+#ifdef CONFIG_OMAP2_DSS_HL
 	destroy_workqueue(my_workq);
+#endif
 	omap_dss_unregister_driver(&hdmi_driver);
 
 	switch_dev_unregister(&hdmi.hpd_switch);

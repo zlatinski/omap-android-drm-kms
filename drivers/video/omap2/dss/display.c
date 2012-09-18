@@ -497,6 +497,15 @@ void dss_init_device(struct platform_device *pdev,
 			dev_name(&dssdev->dev));
 	if (r)
 		DSSERR("failed to create sysfs display link\n");
+#else
+	if(dssdev->type == OMAP_DISPLAY_TYPE_HDMI)
+	{
+		int ret = hdmi_init_display(dssdev);
+		if (ret) {
+			DSSERR("failed to init HDMI display %s\n", dssdev->name);
+			return;
+		}
+	}
 #endif //CONFIG_OMAP2_DSS_HL
 }
 
