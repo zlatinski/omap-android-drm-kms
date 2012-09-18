@@ -34,19 +34,15 @@
 
 #if defined(CONFIG_DRM_OMAP) || (CONFIG_DRM_OMAP_MODULE)
 
-static struct platform_device omap_drm_device = {
-	.dev = {
-		.coherent_dma_mask = DMA_BIT_MASK(32),
-	},
-	.name = "omapdrm",
-	.id = 0,
-};
+static struct platform_device *dmm_pdev;
 
-#if defined(CONFIG_DRM_OMAP_DMM_TILER) || (CONFIG_DRM_OMAP_DMM_TILER_MODULE)
 void __init omap_init_dmm_tiler(void)
 {
 	struct omap_hwmod *oh = NULL;
 	struct platform_device *pdev = NULL;
+
+	if(dmm_pdev)
+		return;
 
 	/* lookup and populate the DMM information, if present - OMAP4+ */
 	oh = omap_hwmod_lookup("dmm");
@@ -57,30 +53,45 @@ void __init omap_init_dmm_tiler(void)
 		WARN(IS_ERR(pdev), "Could not build omap_device for %s\n",
 			oh->name);
 	}
+
+	if(!IS_ERR(pdev))
+		dmm_pdev = pdev;
 }
-#else
-void __init omap_init_dmm_tiler(void)
-{
-}
-#endif
 
 static int __init omap_init_drm(void)
 {
-	return platform_device_register(&omap_drm_device);
-}
+	struct omap_hwmod *oh = NULL;
+	struct platform_device *pdev;
 
+	omap_init_dmm_tiler();
+
+	/* lookup and populate DSS information: */
+	oh = omap_hwmod_lookup("dss_dispc");
+	pdev = omap_device_build("omapdrm", -1, oh, NULL, 0, NULL, 0,
+			false);
+	WARN(IS_ERR(pdev), "Could not build omap_device for omapdrm\n");
+
+	if (!pdev)
+		return -EINVAL;
+
+	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
+
+	return 0;
+}
 
 arch_initcall(omap_init_drm);
 
 void __init omapdrm_reserve_vram(void)
 {
 #ifdef CONFIG_CMA
+#if 0 /* TODO add this back for omap3 */
 	/*
 	 * Create private 32MiB contiguous memory area for omapdrm.0 device
 	 * TODO revisit size.. if uc/wc buffers are allocated from CMA pages
 	 * then the amount of memory we need goes up..
 	 */
 	dma_declare_contiguous(&omap_drm_device.dev, 32 * SZ_1M, 0, 0);
+#endif
 #else
 #  warning "CMA is not enabled, there may be limitations about scanout buffer allocations on OMAP3 and earlier"
 #endif
