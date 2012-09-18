@@ -456,6 +456,8 @@ void dispc_mgr_set_lcd_display_type(enum omap_channel channel,
 		enum omap_lcd_display_type type);
 void dispc_mgr_set_lcd_timings(enum omap_channel channel,
 		struct omap_video_timings *timings);
+void dispc_mgr_set_timings(enum omap_channel channel,
+		struct omap_video_timings *timings);
 void dispc_mgr_set_pol_freq(enum omap_channel channel,
 		enum omap_panel_config config, u8 acbi, u8 acb);
 unsigned long dispc_mgr_lclk_rate(enum omap_channel channel);
@@ -555,6 +557,11 @@ int omapdss_hdmi_display_3d_enable(struct omap_dss_device *dssdev,
 void omapdss_hdmi_register_hdcp_callbacks(void (*hdmi_start_frame_cb)(void),
 					bool (*hdmi_power_on_cb)(void),
 					void (*hdmi_hdcp_irq_cb)(void));
+
+typedef irqreturn_t hpd_irq_handler_t(int irq, void *user_data);
+int ti_hdmi_install_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data);
+int ti_hdmi_uninstall_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data);
+
 int hdmi_panel_init(void);
 void hdmi_panel_exit(void);
 #ifdef CONFIG_OMAP4_DSS_HDMI_AUDIO

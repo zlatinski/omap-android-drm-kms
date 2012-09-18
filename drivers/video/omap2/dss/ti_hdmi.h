@@ -376,8 +376,4 @@ static inline void omapdss_fb2dss_timings(struct fb_videomode *fb_timings,
         dss_timings->vsw = fb_timings->vsync_len;
 }
 
-typedef irqreturn_t hpd_irq_handler_t(int irq, struct hdmi_ip_data *data, void *user_data);
-
-int ti_hdmi_install_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data);
-int ti_hdmi_uninstall_external_hpd_irq_handler(hpd_irq_handler_t irq_handler, void *user_data);
 #endif
