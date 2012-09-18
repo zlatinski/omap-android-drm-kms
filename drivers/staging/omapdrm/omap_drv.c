@@ -112,7 +112,7 @@ static int get_connector_type(struct omap_dss_device *dssdev)
 }
 
 static irqreturn_t omapdrm_hpd_irq_handler(int irq,
-		struct hdmi_ip_data *data, void *user_data)
+		void *user_data)
 {
 	if(user_data)
 	{
