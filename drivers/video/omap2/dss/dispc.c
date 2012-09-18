@@ -968,6 +968,15 @@ static void dispc_ovl_enable_replication(enum omap_plane plane, bool enable)
 	REG_FLD_MOD(DISPC_OVL_ATTRIBUTES(plane), enable, shift, shift);
 }
 
+static void dispc_mgr_set_size(enum omap_channel channel, u16 width,
+		u16 height)
+{
+	u32 val;
+
+	val = FLD_VAL(height - 1, 26, 16) | FLD_VAL(width - 1, 10, 0);
+	dispc_write_reg(DISPC_SIZE_MGR(channel), val);
+}
+
 void dispc_mgr_set_lcd_size(enum omap_channel channel, u16 width, u16 height)
 {
 	u32 val;
@@ -3084,6 +3093,12 @@ void dispc_mgr_enable_stallmode(enum omap_channel channel, bool enable)
 		REG_FLD_MOD(DISPC_CONTROL, enable, 11, 11);
 }
 
+static bool _dispc_mgr_size_ok(u16 width, u16 height)
+{
+	return width <= dss_feat_get_param_max(FEAT_PARAM_MGR_WIDTH) &&
+		height <= dss_feat_get_param_max(FEAT_PARAM_MGR_HEIGHT);
+}
+
 static bool _dispc_lcd_timings_ok(int hsw, int hfp, int hbp,
 		int vsw, int vfp, int vbp)
 {
@@ -3106,6 +3121,22 @@ static bool _dispc_lcd_timings_ok(int hsw, int hfp, int hbp,
 	}
 
 	return true;
+}
+
+bool dispc_mgr_timings_ok(enum omap_channel channel,
+		const struct omap_video_timings *timings)
+{
+	bool timings_ok;
+
+	timings_ok = _dispc_mgr_size_ok(timings->x_res, timings->y_res);
+
+	if (dispc_mgr_is_lcd(channel))
+		timings_ok =  timings_ok && _dispc_lcd_timings_ok(timings->hsw,
+						timings->hfp, timings->hbp,
+						timings->vsw, timings->vfp,
+						timings->vbp);
+
+	return timings_ok;
 }
 
 bool dispc_lcd_timings_ok(struct omap_video_timings *timings)
@@ -3137,6 +3168,49 @@ static void _dispc_mgr_set_lcd_timings(enum omap_channel channel, int hsw,
 	dispc_write_reg(DISPC_TIMING_H(channel), timing_h);
 	dispc_write_reg(DISPC_TIMING_V(channel), timing_v);
 }
+
+/* change name to mode? */
+void dispc_mgr_set_timings(enum omap_channel channel,
+		struct omap_video_timings *timings)
+{
+	unsigned xtot, ytot;
+	unsigned long ht, vt;
+	struct omap_video_timings t = *timings;
+
+	DSSDBG("channel %d xres %u yres %u\n", channel, t.x_res, t.y_res);
+
+	if (!dispc_mgr_timings_ok(channel, &t)) {
+		BUG();
+		return;
+	}
+
+	if (dispc_mgr_is_lcd(channel)) {
+		_dispc_mgr_set_lcd_timings(channel, t.hsw, t.hfp, t.hbp, t.vsw,
+				t.vfp, t.vbp);
+
+		xtot = t.x_res + t.hfp + t.hsw + t.hbp;
+		ytot = t.y_res + t.vfp + t.vsw + t.vbp;
+
+		ht = (timings->pixel_clock * 1000) / xtot;
+		vt = (timings->pixel_clock * 1000) / xtot / ytot;
+
+		DSSDBG("pck %u\n", timings->pixel_clock);
+		DSSDBG("hsw %d hfp %d hbp %d vsw %d vfp %d vbp %d\n",
+			t.hsw, t.hfp, t.hbp, t.vsw, t.vfp, t.vbp);
+
+		DSSDBG("hsync %luHz, vsync %luHz\n", ht, vt);
+	} else {
+		enum dss_hdmi_venc_clk_source_select source;
+
+		source = dss_get_hdmi_venc_clk_source();
+
+		if (source == DSS_VENC_TV_CLK)
+			t.y_res /= 2;
+	}
+
+	dispc_mgr_set_size(channel, t.x_res, t.y_res);
+}
+EXPORT_SYMBOL_GPL(dispc_mgr_set_timings);
 
 /* change name to mode? */
 void dispc_mgr_set_lcd_timings(enum omap_channel channel,
