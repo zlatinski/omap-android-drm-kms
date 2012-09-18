@@ -364,7 +364,7 @@ int drm_irq_install(struct drm_device *dev)
 		mutex_lock(&dev->struct_mutex);
 		dev->irq_enabled = 0;
 		mutex_unlock(&dev->struct_mutex);
-		dev_err(dev->dev, "request_irq ERROR 0x%x\n", ret);
+		dev_err(dev->dev, "request_irq ERROR 0x%x for IRQ 0x%08x\n", ret, drm_dev_to_irq(dev));
 		return ret;
 	}
 
