@@ -1004,8 +1004,12 @@ void dispc_mgr_set_size(enum omap_channel channel, u16 width,
 {
 	u32 val;
 
-	BUG_ON(width > dss_feat_get_param_max(FEAT_PARAM_MGR_WIDTH) ||
-		height > dss_feat_get_param_max(FEAT_PARAM_MGR_HEIGHT));
+	WARN((width > dss_feat_get_param_max(FEAT_PARAM_MGR_WIDTH) ||
+		height > dss_feat_get_param_max(FEAT_PARAM_MGR_HEIGHT)),
+		"width (%d) and height (%d) out or range (%ld,%ld)",
+		width, height,
+		dss_feat_get_param_max(FEAT_PARAM_MGR_WIDTH),
+		dss_feat_get_param_max(FEAT_PARAM_MGR_HEIGHT));
 	val = FLD_VAL(height - 1, 26, 16) | FLD_VAL(width - 1, 10, 0);
 	dispc_write_reg(DISPC_SIZE_MGR(channel), val);
 }
