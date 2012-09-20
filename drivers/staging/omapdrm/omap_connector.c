@@ -175,13 +175,14 @@ static int omap_connector_get_modes(struct drm_connector *connector)
 		void *edid = kzalloc(MAX_EDID, GFP_KERNEL);
 
 		if ((dssdrv->read_edid(dssdev, edid, MAX_EDID) > 0) &&
-				drm_edid_is_valid(edid)) {
+				drm_edid_is_valid((struct edid *)edid)) {
 			drm_mode_connector_update_edid_property(
-					connector, edid);
-			n = drm_add_edid_modes(connector, edid);
+					connector, (struct edid *)edid);
+			n = drm_add_edid_modes(connector, (struct edid *)edid);
 			kfree(connector->display_info.raw_edid);
 			connector->display_info.raw_edid = edid;
 		} else {
+			DRM_ERROR("NO EDID Info Available from DSS or device\n");
 			drm_mode_connector_update_edid_property(
 					connector, NULL);
 			connector->display_info.raw_edid = NULL;
@@ -190,6 +191,8 @@ static int omap_connector_get_modes(struct drm_connector *connector)
 	} else {
 		struct drm_display_mode *mode = drm_mode_create(dev);
 		struct omap_video_timings timings;
+
+		DRM_ERROR("NO read_edid functionality available from DSS\n");
 
 		dssdrv->get_timings(dssdev, &timings);
 
