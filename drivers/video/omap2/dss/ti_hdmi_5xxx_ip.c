@@ -74,7 +74,7 @@ static int panel_hdmi_i2c_read(struct i2c_adapter *adapter,
 	unsigned char *buf, u16 count, u8 ext)
 {
 	int r, retries;
-	u8 segptr = ext / 2;
+	u8 segptr = ext ? (ext / 2) : 0 ;
 	u8 offset = ext * EDID_LENGTH;
 
 	for (retries = RETRY_CNT; retries > 0; retries--) {
@@ -102,6 +102,7 @@ static int panel_hdmi_i2c_read(struct i2c_adapter *adapter,
 			};
 
 			r = i2c_transfer(adapter, msgs_extended, 3);
+			printk("%s: Ret %d of 3 of Extended EDID data\n", __func__, r);
 			if (r == 3)
 				return 0;
 
@@ -122,6 +123,7 @@ static int panel_hdmi_i2c_read(struct i2c_adapter *adapter,
 			};
 
 			r = i2c_transfer(adapter, msgs, 2);
+			printk("%s: Ret %d of of 2 of EDID data\n", __func__, r);
 			if (r == 2)
 				return 0;
 		}
@@ -136,8 +138,10 @@ static int panel_hdmi_i2c_read(struct i2c_adapter *adapter,
 static int panel_hdmi_read_edid(u8 *edid, int len)
 {
 	struct i2c_adapter *adapter;
-	int r = 0, n = 0, i = 0;
-	int max_ext_blocks = (len / 128) - 1;
+	int ret = 0, i = 0;
+	unsigned max_ext_blocks = (len / 128) - 1;
+	unsigned ext_blocks = 0;
+	unsigned out_len = 0;
 
 	adapter = i2c_get_adapter(0);
 	if (!adapter) {
@@ -145,24 +149,30 @@ static int panel_hdmi_read_edid(u8 *edid, int len)
 		return -EINVAL;
 	}
 
-	r = panel_hdmi_i2c_read(adapter, edid, EDID_LENGTH, 0);
-	if (r) {
-		return r;
-	} else {
-		/*Multiblock read*/
-		n = edid[0x7e];
+	ret = panel_hdmi_i2c_read(adapter, edid, EDID_LENGTH, 0);
+	if (ret < 0) {
+		printk("%s: Failed to read EDID data %d\n", __func__, ret);
+		return ret;
+	}
 
-		if (n > max_ext_blocks)
-			n = max_ext_blocks;
-		for (i = 1; i <= n; i++) {
-			r = panel_hdmi_i2c_read(adapter, edid + i*EDID_LENGTH,
+	/* Already got EDID_LENGTH worth of data */
+	out_len = EDID_LENGTH;
+
+	/* Do we have an extended EDID */
+	ext_blocks = edid[0x7e];
+	if(ext_blocks && max_ext_blocks) {
+		if (ext_blocks > max_ext_blocks)
+			ext_blocks = max_ext_blocks;
+		for (i = 1; i <= ext_blocks; i++) {
+			ret = panel_hdmi_i2c_read(adapter, edid + i*EDID_LENGTH,
 				EDID_LENGTH, i);
-			if (r)
-				return r;
+			if (ret < 0)
+				break;
+			out_len += EDID_LENGTH;
 		}
 	}
 
-	return r;
+	return out_len;
 }
 
 static inline void hdmi_write_reg(void __iomem *base_addr,
@@ -287,10 +297,30 @@ static inline void ctrl_core_hdmi_write_reg(u32 val)
 	__raw_writel(val, (void __iomem *)CONTROL_CORE_PAD0_HDMI_DDC_SCL_PAD1_HDMI_DDC_SDA);
 }
 
+static void hdmi_dump_edid(u8 *edid, int len)
+{
+	static const u8 edid_header[8] = {0x0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0};
+	unsigned i;
+
+	for (i = 0; i < len; i += 16)
+		pr_info("edid[%03x] = %02x %02x %02x %02x %02x %02x %02x %02x "\
+			"%02x %02x %02x %02x %02x %02x %02x %02x\n", i,
+			edid[i], edid[i + 1], edid[i + 2],
+			edid[i + 3], edid[i + 4], edid[i + 5],
+			edid[i + 6], edid[i + 7], edid[i + 8],
+			edid[i + 9], edid[i + 10], edid[i + 11],
+			edid[i + 12], edid[i + 13], edid[i + 14],
+			edid[i + 15]);
+
+	if (memcmp(edid, edid_header, sizeof(edid_header))) {
+		DSSWARN("failed to read E-EDID: wrong header\n");
+	}
+}
+
 int ti_hdmi_5xxx_read_edid(struct hdmi_ip_data *ip_data,
 				u8 *edid, int len)
 {
-	int r, l;
+	int r, out_len;
 
 	if (len < 128)
 		return -EINVAL;
@@ -304,28 +334,36 @@ int ti_hdmi_5xxx_read_edid(struct hdmi_ip_data *ip_data,
 		 *   - pull-up selected
 		 */
 		ctrl_core_hdmi_write_reg((u32)0x011E011E);
-		r = panel_hdmi_read_edid(edid, len);
+		out_len = panel_hdmi_read_edid(edid, len);
 		/* Use hdmi_ddc_scl and hdmi_ddc_sda for hdcp */
 		ctrl_core_hdmi_write_reg((u32)0x01000100);
 
-		return r;
+		hdmi_dump_edid(edid, len);
+
+		return out_len;
 	} else {
 
 		hdmi_core_ddc_init(ip_data);
 
 		r = hdmi_core_ddc_edid(ip_data, edid, 0);
-		if (r)
+		if (r < 0)
 			return r;
 
-		l = 128;
+		out_len = EDID_LENGTH;
 
-		if (len >= 128 * 2 && edid[0x7e] > 0) {
-			r = hdmi_core_ddc_edid(ip_data, edid + 0x80, 1);
-			if (r)
-				return r;
-			l += 128;
+		if(edid[0x7e]  > 0)
+		{
+			while (len >= out_len) {
+				r = hdmi_core_ddc_edid(ip_data, edid + EDID_LENGTH, 1);
+				if (r < 0)
+					break;
+				out_len += EDID_LENGTH;
+			}
 		}
-		return 0;
+
+		hdmi_dump_edid(edid, len);
+
+		return out_len;
 	}
 }
 void ti_hdmi_5xxx_core_dump(struct hdmi_ip_data *ip_data, struct seq_file *s)
