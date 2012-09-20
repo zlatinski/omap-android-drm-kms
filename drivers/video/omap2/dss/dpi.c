@@ -308,7 +308,7 @@ int dpi_check_timings(struct omap_dss_device *dssdev,
 	struct dispc_clock_info dispc_cinfo;
 
 #ifdef CONFIG_OMAP2_DSS_HL
-	if (!dispc_lcd_timings_ok(timings))
+	if (!dispc_mgr_timings_ok(dssdev->manager_id, timings))
 		return -EINVAL;
 #endif //CONFIG_OMAP2_DSS_HL
 

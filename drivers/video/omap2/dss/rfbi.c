@@ -310,7 +310,7 @@ static void rfbi_transfer_area(struct omap_dss_device *dssdev, u16 width,
 
 	DSSDBG("rfbi_transfer_area %dx%d\n", width, height);
 
-	dispc_mgr_set_lcd_size(dssdev->manager_id, width, height);
+	dispc_mgr_set_size(dssdev->manager_id, width, height);
 
 	dispc_mgr_enable(dssdev->manager_id, true);
 
@@ -786,7 +786,7 @@ int omap_rfbi_prepare_update(struct omap_dss_device *dssdev,
 	if (*w == 0 || *h == 0)
 		return -EINVAL;
 
-	dispc_mgr_set_lcd_size(dssdev->manager_id, *w, *h);
+	dispc_mgr_set_size(dssdev->manager_id, *w, *h);
 
 	return 0;
 }

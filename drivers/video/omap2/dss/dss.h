@@ -190,7 +190,8 @@ int dss_mgr_set_ovls(struct omap_overlay_manager *mgr);
 void dss_mgr_set_timings(struct omap_overlay_manager *mgr,
 		struct omap_video_timings *timings);
 const struct omap_video_timings *dss_mgr_get_timings(struct omap_overlay_manager *mgr);
-
+void dispc_mgr_set_size(enum omap_channel channel, u16 width,
+		u16 height);
 bool dss_ovl_is_enabled(struct omap_overlay *ovl);
 int dss_ovl_enable(struct omap_overlay *ovl);
 int dss_ovl_disable(struct omap_overlay *ovl);
@@ -411,12 +412,12 @@ void dispc_disable_sidle(void);
 void dispc_lcd_enable_signal_polarity(bool act_high);
 void dispc_lcd_enable_signal(bool enable);
 void dispc_pck_free_enable(bool enable);
-void dispc_set_digit_size(u16 width, u16 height);
 void dispc_enable_fifomerge(bool enable);
 void dispc_enable_gamma_table(bool enable);
 void dispc_set_loadmode(enum omap_dss_load_mode mode);
 
-bool dispc_lcd_timings_ok(struct omap_video_timings *timings);
+bool dispc_mgr_timings_ok(enum omap_channel channel,
+		const struct omap_video_timings *timings);
 unsigned long dispc_fclk_rate(void);
 void dispc_find_clk_divs(bool is_tft, unsigned long req_pck, unsigned long fck,
 		struct dispc_clock_info *cinfo);
@@ -429,9 +430,6 @@ void dispc_ovl_compute_fifo_thresholds(enum omap_plane plane,
 		u32 *fifo_low, u32 *fifo_high, bool use_fifomerge,
 		bool manual_update);
 int dispc_ovl_setup(enum omap_plane plane, struct omap_overlay_info *oi,
-		bool ilace, bool replication, int x_decim, int y_decim,
-		bool five_taps);
-int dispc_ovl_setup_with_timings(enum omap_plane plane, struct omap_overlay_info *oi,
 		bool ilace, bool replication,
 		const struct omap_video_timings *mgr_timings);
 int dispc_ovl_enable(enum omap_plane plane, bool enable);
@@ -439,9 +437,6 @@ void dispc_ovl_set_channel_out(enum omap_plane plane,
 		enum omap_channel channel);
 
 void dispc_mgr_enable_fifohandcheck(enum omap_channel channel, bool enable);
-void dispc_mgr_set_lcd_size(enum omap_channel channel, u16 width, u16 height);
-void dispc_mgr_setup_color_conv_coef(enum omap_plane plane,
-		const struct omap_dss_cconv_coefs *ct);
 u32 dispc_mgr_get_vsync_irq(enum omap_channel channel);
 u32 dispc_mgr_get_framedone_irq(enum omap_channel channel);
 bool dispc_mgr_go_busy(enum omap_channel channel);
@@ -454,8 +449,6 @@ void dispc_mgr_enable_stallmode(enum omap_channel channel, bool enable);
 void dispc_mgr_set_tft_data_lines(enum omap_channel channel, u8 data_lines);
 void dispc_mgr_set_lcd_display_type(enum omap_channel channel,
 		enum omap_lcd_display_type type);
-void dispc_mgr_set_lcd_timings(enum omap_channel channel,
-		struct omap_video_timings *timings);
 void dispc_mgr_set_timings(enum omap_channel channel,
 		struct omap_video_timings *timings);
 void dispc_mgr_set_pol_freq(enum omap_channel channel,

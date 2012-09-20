@@ -4506,12 +4506,12 @@ static int dsi_display_init_dispc(struct omap_dss_device *dssdev)
 		dispc_mgr_enable_stallmode(dssdev->manager_id, true);
 		dispc_mgr_enable_fifohandcheck(dssdev->manager_id, 1);
 
-		dispc_mgr_set_lcd_timings(dssdev->manager_id, &timings);
+		dispc_mgr_set_timings(dssdev->manager_id, &timings);
 	} else {
 		dispc_mgr_enable_stallmode(dssdev->manager_id, false);
 		dispc_mgr_enable_fifohandcheck(dssdev->manager_id, 0);
 
-		dispc_mgr_set_lcd_timings(dssdev->manager_id,
+		dispc_mgr_set_timings(dssdev->manager_id,
 			&dssdev->panel.timings);
 	}
 
