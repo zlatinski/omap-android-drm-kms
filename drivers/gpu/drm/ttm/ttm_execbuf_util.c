@@ -33,70 +33,16 @@
 #include <linux/module.h>
 
 static void ttm_eu_backoff_reservation_locked(struct list_head *list,
+					      struct ttm_validate_buffer *entry,
 					      struct reservation_ticket *ticket)
 {
-	struct ttm_validate_buffer *entry;
-
-	list_for_each_entry(entry, list, head) {
+	list_for_each_entry_continue_reverse(entry, list, head) {
 		struct ttm_buffer_object *bo = entry->bo;
-		if (!entry->reserved)
-			continue;
 
-		entry->reserved = false;
-		if (entry->removed) {
-			ttm_bo_unreserve_ticket_locked(bo, ticket);
-			entry->removed = false;
-
-		} else {
-			object_unreserve(bo->resv, ticket);
-		}
+		object_unreserve(bo->resv, ticket);
 	}
 	reservation_ticket_fini(ticket);
 }
-
-static void ttm_eu_del_from_lru_locked(struct list_head *list)
-{
-	struct ttm_validate_buffer *entry;
-
-	list_for_each_entry(entry, list, head) {
-		struct ttm_buffer_object *bo = entry->bo;
-		if (!entry->reserved)
-			continue;
-
-		if (!entry->removed) {
-			entry->put_count = ttm_bo_del_from_lru(bo);
-			entry->removed = true;
-		}
-	}
-}
-
-static void ttm_eu_list_ref_sub(struct list_head *list)
-{
-	struct ttm_validate_buffer *entry;
-
-	list_for_each_entry(entry, list, head) {
-		struct ttm_buffer_object *bo = entry->bo;
-
-		if (entry->put_count) {
-			ttm_bo_list_ref_sub(bo, entry->put_count, true);
-			entry->put_count = 0;
-		}
-	}
-}
-
-static int ttm_eu_wait_unreserved_locked(struct list_head *list,
-					 struct ttm_buffer_object *bo)
-{
-	struct ttm_bo_global *glob = bo->glob;
-	int ret;
-
-	ttm_eu_del_from_lru_locked(list);
-	spin_unlock(&glob->lru_lock);
-	ret = ttm_bo_wait_unreserved(bo, true);
-	spin_lock(&glob->lru_lock);
-	return ret;
-}
-
 
 void ttm_eu_backoff_reservation(struct reservation_ticket *ticket,
 				struct list_head *list)
@@ -110,7 +56,13 @@ void ttm_eu_backoff_reservation(struct reservation_ticket *ticket,
 	entry = list_first_entry(list, struct ttm_validate_buffer, head);
 	glob = entry->bo->glob;
 	spin_lock(&glob->lru_lock);
-	ttm_eu_backoff_reservation_locked(list, ticket);
+
+	list_for_each_entry(entry, list, head) {
+		struct ttm_buffer_object *bo = entry->bo;
+
+		ttm_bo_unreserve_ticket_locked(bo, ticket);
+	}
+	reservation_ticket_fini(ticket);
 	spin_unlock(&glob->lru_lock);
 }
 EXPORT_SYMBOL(ttm_eu_backoff_reservation);
@@ -137,57 +89,51 @@ int ttm_eu_reserve_buffers(struct reservation_ticket *ticket,
 	if (list_empty(list))
 		return 0;
 
-	list_for_each_entry(entry, list, head) {
-		entry->reserved = false;
-		entry->put_count = 0;
-		entry->removed = false;
-	}
-
 	entry = list_first_entry(list, struct ttm_validate_buffer, head);
 	glob = entry->bo->glob;
 
 retry:
-	spin_lock(&glob->lru_lock);
 	reservation_ticket_init(ticket);
 
 	list_for_each_entry(entry, list, head) {
 		struct ttm_buffer_object *bo = entry->bo;
 
-retry_this_bo:
-		ret = ttm_bo_reserve_nolru(bo, true, true, true, ticket);
+		ret = ttm_bo_reserve_nolru(bo, true, false, true, ticket);
 		switch (ret) {
 		case 0:
 			break;
-		case -EBUSY:
-			ret = ttm_eu_wait_unreserved_locked(list, bo);
-			if (unlikely(ret != 0)) {
-				ttm_eu_backoff_reservation_locked(list, ticket);
-				spin_unlock(&glob->lru_lock);
-				ttm_eu_list_ref_sub(list);
-				return ret;
-			}
-			goto retry_this_bo;
 		case -EAGAIN:
-			ttm_eu_backoff_reservation_locked(list, ticket);
+			spin_lock(&glob->lru_lock);
+			ttm_eu_backoff_reservation_locked(list, entry, ticket);
 			spin_unlock(&glob->lru_lock);
-			ttm_eu_list_ref_sub(list);
 			ret = ttm_bo_wait_unreserved(bo, true);
 			if (unlikely(ret != 0))
 				return ret;
 			goto retry;
 		default:
-			ttm_eu_backoff_reservation_locked(list, ticket);
+			spin_lock(&glob->lru_lock);
+			ttm_eu_backoff_reservation_locked(list, entry, ticket);
 			spin_unlock(&glob->lru_lock);
-			ttm_eu_list_ref_sub(list);
 			return ret;
 		}
-
-		entry->reserved = true;
 	}
 
-	ttm_eu_del_from_lru_locked(list);
+	spin_lock(&glob->lru_lock);
+	list_for_each_entry(entry, list, head) {
+		struct ttm_buffer_object *bo = entry->bo;
+
+		entry->put_count = ttm_bo_del_from_lru(bo);
+	}
 	spin_unlock(&glob->lru_lock);
-	ttm_eu_list_ref_sub(list);
+
+	list_for_each_entry(entry, list, head) {
+		struct ttm_buffer_object *bo = entry->bo;
+
+		if (entry->put_count) {
+			ttm_bo_list_ref_sub(bo, entry->put_count, true);
+			entry->put_count = 0;
+		}
+	}
 
 	return 0;
 }
@@ -210,21 +156,21 @@ void ttm_eu_fence_buffer_objects(struct reservation_ticket *ticket,
 	driver = bdev->driver;
 	glob = bo->glob;
 
-	spin_lock(&glob->lru_lock);
-
 	list_for_each_entry(entry, list, head) {
 		bo = entry->bo;
-		entry->old_sync_obj = bo->sync_obj;
+
+		if (bo->sync_obj)
+			driver->sync_obj_unref(&bo->sync_obj);
+
 		bo->sync_obj = driver->sync_obj_ref(sync_obj);
+	}
+
+	spin_lock(&glob->lru_lock);
+	list_for_each_entry(entry, list, head) {
+		bo = entry->bo;
 		ttm_bo_unreserve_ticket_locked(bo, ticket);
-		entry->reserved = false;
 	}
 	spin_unlock(&glob->lru_lock);
 	reservation_ticket_fini(ticket);
-
-	list_for_each_entry(entry, list, head) {
-		if (entry->old_sync_obj)
-			driver->sync_obj_unref(&entry->old_sync_obj);
-	}
 }
 EXPORT_SYMBOL(ttm_eu_fence_buffer_objects);

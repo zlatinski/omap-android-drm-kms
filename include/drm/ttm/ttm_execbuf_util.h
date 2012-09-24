@@ -39,8 +39,6 @@
  *
  * @head:           list head for thread-private list.
  * @bo:             refcounted buffer object pointer.
- * @reserved:       Indicates whether @bo has been reserved for validation.
- * @removed:        Indicates whether @bo has been removed from lru lists.
  * @put_count:      Number of outstanding references on bo::list_kref.
  * @old_sync_obj:   Pointer to a sync object about to be unreferenced
  */
@@ -48,10 +46,7 @@
 struct ttm_validate_buffer {
 	struct list_head head;
 	struct ttm_buffer_object *bo;
-	bool reserved;
-	bool removed;
 	int put_count;
-	void *old_sync_obj;
 };
 
 /**
