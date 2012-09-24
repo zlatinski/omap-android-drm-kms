@@ -1285,29 +1285,18 @@ EXPORT_SYMBOL(ttm_bo_create);
 static int ttm_bo_force_list_clean(struct ttm_bo_device *bdev,
 					unsigned mem_type, bool allow_errors)
 {
-	struct ttm_mem_type_manager *man = &bdev->man[mem_type];
-	struct ttm_bo_global *glob = bdev->glob;
-	int ret;
+	int ret = 0;
 
-	/*
-	 * Can't use standard list traversal since we're unlocking.
-	 */
-
-	spin_lock(&glob->lru_lock);
-	while (!list_empty(&man->lru)) {
-		spin_unlock(&glob->lru_lock);
+	while (!ret) {
 		ret = ttm_mem_evict_first(bdev, mem_type, false, false, false);
-		if (ret) {
-			if (allow_errors) {
-				return ret;
-			} else {
-				pr_err("Cleanup eviction failed\n");
-			}
+		if (ret == -EBUSY)
+			return 0;
+		else if (ret && !allow_errors) {
+			pr_err("Cleanup eviction failed\n");
+			ret = 0;
 		}
-		spin_lock(&glob->lru_lock);
 	}
-	spin_unlock(&glob->lru_lock);
-	return 0;
+	return ret;
 }
 
 int ttm_bo_clean_mm(struct ttm_bo_device *bdev, unsigned mem_type)
