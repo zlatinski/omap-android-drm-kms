@@ -541,37 +541,27 @@ queue:
 }
 
 /**
- * function ttm_bo_cleanup_refs
+ * function ttm_bo_cleanup_refs_reserved
  * If bo idle, remove from delayed- and lru lists, and unref.
  * If not idle, do nothing.
  *
  * @interruptible         Any sleeps should occur interruptibly.
- * @no_wait_reserve       Never wait for reserve. Return -EBUSY instead.
  * @no_wait_gpu           Never wait for gpu. Return -EBUSY instead.
  */
 
-static int ttm_bo_cleanup_refs(struct ttm_buffer_object *bo,
-			       bool interruptible,
-			       bool no_wait_reserve,
-			       bool no_wait_gpu)
+static int ttm_bo_cleanup_refs_reserved(struct ttm_buffer_object *bo,
+					 bool interruptible,
+					 bool no_wait_gpu)
 {
 	struct ttm_bo_global *glob = bo->glob;
 	int put_count;
-	int ret = 0;
+	int ret;
 
 	spin_lock(&glob->lru_lock);
 
-	if (unlikely(list_empty(&bo->ddestroy))) {
+	if (WARN_ON_ONCE(list_empty(&bo->ddestroy))) {
 		spin_unlock(&glob->lru_lock);
 		return 0;
-	}
-
-	ret = ttm_bo_reserve_locked(bo, interruptible,
-				    no_wait_reserve, false, 0);
-
-	if (ret != 0) {
-		spin_unlock(&glob->lru_lock);
-		return ret;
 	}
 
 	ret = ttm_bo_wait(bo, false, interruptible, no_wait_gpu);
@@ -596,8 +586,8 @@ static int ttm_bo_cleanup_refs(struct ttm_buffer_object *bo,
 }
 
 /**
- * Traverse the delayed list, and call ttm_bo_cleanup_refs on all
- * encountered buffers.
+ * Traverse the delayed list, and call ttm_bo_cleanup_refs_reserved
+ * on all encountered buffers.
  */
 
 static int ttm_bo_delayed_delete(struct ttm_bo_device *bdev, bool remove_all)
@@ -623,9 +613,13 @@ static int ttm_bo_delayed_delete(struct ttm_bo_device *bdev, bool remove_all)
 			kref_get(&nentry->list_kref);
 		}
 
+		ret = ttm_bo_reserve_locked(entry, false,
+					    !remove_all, false, 0);
+
 		spin_unlock(&glob->lru_lock);
-		ret = ttm_bo_cleanup_refs(entry, false, !remove_all,
-					  !remove_all);
+		if (!ret)
+			ret = ttm_bo_cleanup_refs_reserved(entry, false,
+							   !remove_all);
 		kref_put(&entry->list_kref, ttm_bo_release_list);
 		entry = nentry;
 
@@ -773,43 +767,43 @@ retry:
 		return -EBUSY;
 	}
 
-	bo = list_first_entry(&man->lru, struct ttm_buffer_object, lru);
-	kref_get(&bo->list_kref);
+	ret = -EBUSY;
+	list_for_each_entry(bo, &man->lru, lru) {
+		ret = ttm_bo_reserve_locked(bo, false, true, false, 0);
+		if (!ret) {
+			kref_get(&bo->list_kref);
+			if (list_empty(&bo->ddestroy))
+				break;
 
-	if (!list_empty(&bo->ddestroy)) {
-		spin_unlock(&glob->lru_lock);
-		ret = ttm_bo_cleanup_refs(bo, interruptible,
-					  no_wait_reserve, no_wait_gpu);
-		kref_put(&bo->list_kref, ttm_bo_release_list);
+			spin_unlock(&glob->lru_lock);
+			ret = ttm_bo_cleanup_refs_reserved(bo, interruptible,
+							   no_wait_gpu);
+			kref_put(&bo->list_kref, ttm_bo_release_list);
 
-		if (likely(ret == 0 || ret == -ERESTARTSYS))
-			return ret;
+			if (likely(ret == 0 || ret == -ERESTARTSYS))
+				return ret;
 
-		goto retry;
+			goto retry;
+		}
 	}
 
-	ret = ttm_bo_reserve_locked(bo, false, no_wait_reserve, false, 0);
+	if (ret && !no_wait_reserve) {
+		bo = list_first_entry(&man->lru, struct ttm_buffer_object, lru);
 
-	if (unlikely(ret == -EBUSY)) {
-		spin_unlock(&glob->lru_lock);
-		if (likely(!no_wait_gpu))
-			ret = ttm_bo_wait_unreserved(bo, interruptible);
-
-		kref_put(&bo->list_kref, ttm_bo_release_list);
-
-		/**
-		 * We *need* to retry after releasing the lru lock.
-		 */
-
-		if (unlikely(ret != 0))
+		kref_get(&bo->list_kref);
+		ret = ttm_bo_reserve_locked(bo, false, true, false, 0);
+		if (WARN_ON(ret)) {
+			spin_unlock(&glob->lru_lock);
+			kref_put(&bo->list_kref, ttm_bo_release_list);
 			return ret;
-		goto retry;
+		}
+	} else if (ret) {
+		spin_unlock(&glob->lru_lock);
+		return ret;
 	}
 
 	put_count = ttm_bo_del_from_lru(bo);
 	spin_unlock(&glob->lru_lock);
-
-	BUG_ON(ret != 0);
 
 	ttm_bo_list_ref_sub(bo, put_count, true);
 
@@ -1727,14 +1721,6 @@ static int ttm_bo_swapout(struct ttm_mem_shrink *shrink)
 				      struct ttm_buffer_object, swap);
 		kref_get(&bo->list_kref);
 
-		if (!list_empty(&bo->ddestroy)) {
-			spin_unlock(&glob->lru_lock);
-			(void) ttm_bo_cleanup_refs(bo, false, false, false);
-			kref_put(&bo->list_kref, ttm_bo_release_list);
-			spin_lock(&glob->lru_lock);
-			continue;
-		}
-
 		/**
 		 * Reserve buffer. Since we unlock while sleeping, we need
 		 * to re-check that nobody removed us from the swap-list while
@@ -1748,6 +1734,16 @@ static int ttm_bo_swapout(struct ttm_mem_shrink *shrink)
 			kref_put(&bo->list_kref, ttm_bo_release_list);
 			spin_lock(&glob->lru_lock);
 		}
+
+		if (!ret && !list_empty(&bo->ddestroy)) {
+			spin_unlock(&glob->lru_lock);
+			(void) ttm_bo_cleanup_refs_reserved(bo, false, false);
+			kref_put(&bo->list_kref, ttm_bo_release_list);
+			spin_lock(&glob->lru_lock);
+			ret = -EBUSY;
+			continue;
+		}
+
 	}
 
 	BUG_ON(ret != 0);
