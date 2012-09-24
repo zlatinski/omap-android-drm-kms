@@ -36,11 +36,11 @@ static void nouveau_gem_dmabuf_release(struct dma_buf *dma_buf)
 {
 	struct nouveau_bo *nvbo = dma_buf->priv;
 
-	if (nvbo->gem->export_dma_buf == dma_buf) {
-		DRM_ERROR("unreference dmabuf %p\n", nvbo->gem);
+	if (nvbo->gem->export_dma_buf == dma_buf)
 		nvbo->gem->export_dma_buf = NULL;
-		drm_gem_object_unreference_unlocked(nvbo->gem);
-	}
+
+	nouveau_bo_unpin(nvbo);
+	drm_gem_object_unreference_unlocked(nvbo->gem);
 }
 
 struct dma_buf_ops nouveau_dmabuf_ops =  {
@@ -87,13 +87,17 @@ struct dma_buf *nouveau_gem_prime_export(struct drm_device *dev,
 {
 	struct nouveau_bo *nvbo = nouveau_gem_object(obj);
 	int ret = 0;
+	struct dma_buf *buf;
 
 	/* pin buffer into GTT */
 	ret = nouveau_bo_pin(nvbo, TTM_PL_FLAG_TT);
 	if (ret)
 		return ERR_PTR(-EINVAL);
 
-	return dma_buf_export(nvbo, &nouveau_dmabuf_ops, obj->size, flags);
+	buf = dma_buf_export(nvbo, &nouveau_dmabuf_ops, obj->size, flags);
+	if (IS_ERR(buf))
+		nouveau_bo_unpin(nvbo);
+	return buf;
 }
 
 struct drm_gem_object *nouveau_gem_prime_import(struct drm_device *dev,
