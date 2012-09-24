@@ -154,7 +154,7 @@ retry:
 		struct ttm_buffer_object *bo = entry->bo;
 
 retry_this_bo:
-		ret = ttm_bo_reserve_locked(bo, true, true, true, ticket);
+		ret = ttm_bo_reserve_nolru(bo, true, true, true, ticket);
 		switch (ret) {
 		case 0:
 			break;

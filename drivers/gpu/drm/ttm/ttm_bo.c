@@ -209,33 +209,13 @@ int ttm_bo_del_from_lru(struct ttm_buffer_object *bo)
 	return put_count;
 }
 
-int ttm_bo_reserve_locked(struct ttm_buffer_object *bo,
-			  bool interruptible,
-			  bool no_wait, bool use_ticket,
-			  struct reservation_ticket *ticket)
+int ttm_bo_reserve_nolru(struct ttm_buffer_object *bo,
+			 bool interruptible,
+			 bool no_wait, bool use_ticket,
+			 struct reservation_ticket *ticket)
 {
-	struct ttm_bo_global *glob = bo->glob;
-	int ret;
-
-	while (1) {
-		ret = object_reserve(bo->resv, interruptible, true,
-					 use_ticket ? ticket : NULL);
-		if (!ret)
-			return 0;
-
-		if (no_wait && ret == -EBUSY)
-			return -EBUSY;
-
-		if (ret == -EBUSY) {
-			spin_unlock(&glob->lru_lock);
-			ret = ttm_bo_wait_unreserved(bo, interruptible);
-			spin_lock(&glob->lru_lock);
-		}
-
-		if (unlikely(ret))
-			return ret;
-	}
-	return 0;
+	return object_reserve(bo->resv, interruptible, no_wait,
+			      use_ticket ? ticket : NULL);
 }
 EXPORT_SYMBOL(ttm_bo_reserve);
 
@@ -257,17 +237,19 @@ int ttm_bo_reserve(struct ttm_buffer_object *bo,
 		   struct reservation_ticket *ticket)
 {
 	struct ttm_bo_global *glob = bo->glob;
-	int put_count = 0;
 	int ret;
 
-	spin_lock(&glob->lru_lock);
-	ret = ttm_bo_reserve_locked(bo, interruptible, no_wait, use_ticket,
-				    ticket);
-	if (likely(ret == 0))
-		put_count = ttm_bo_del_from_lru(bo);
-	spin_unlock(&glob->lru_lock);
+	ret = object_reserve(bo->resv, interruptible, no_wait,
+			     use_ticket ? ticket : NULL);
+	if (likely(ret == 0)) {
+		int put_count;
 
-	ttm_bo_list_ref_sub(bo, put_count, true);
+		spin_lock(&glob->lru_lock);
+		put_count = ttm_bo_del_from_lru(bo);
+		spin_unlock(&glob->lru_lock);
+
+		ttm_bo_list_ref_sub(bo, put_count, true);
+	}
 
 	return ret;
 }
@@ -470,13 +452,10 @@ static void ttm_bo_cleanup_refs_or_queue(struct ttm_buffer_object *bo)
 {
 	struct ttm_bo_device *bdev = bo->bdev;
 	struct ttm_bo_global *glob = bo->glob;
-	struct ttm_bo_driver *driver;
-	void *sync_obj = NULL;
 	int put_count;
 	int ret;
 
-	spin_lock(&glob->lru_lock);
-	ret = ttm_bo_reserve_locked(bo, false, true, false, 0);
+	ret = ttm_bo_reserve_nolru(bo, false, true, false, 0);
 	if (!ret) {
 		ret = ttm_bo_wait(bo, false, false, true);
 
@@ -485,28 +464,23 @@ static void ttm_bo_cleanup_refs_or_queue(struct ttm_buffer_object *bo)
 			goto queue;
 		}
 
+		spin_lock(&glob->lru_lock);
 		put_count = ttm_bo_del_from_lru(bo);
-
 		spin_unlock(&glob->lru_lock);
+
 		ttm_bo_cleanup_memtype_use(bo);
 
 		ttm_bo_list_ref_sub(bo, put_count, true);
 
 		return;
 	}
-queue:
-	driver = bdev->driver;
-	if (bo->sync_obj)
-		sync_obj = driver->sync_obj_ref(bo->sync_obj);
 
+queue:
 	kref_get(&bo->list_kref);
+	spin_lock(&glob->lru_lock);
 	list_add_tail(&bo->ddestroy, &bdev->ddestroy);
 	spin_unlock(&glob->lru_lock);
 
-	if (sync_obj) {
-		driver->sync_obj_flush(sync_obj);
-		driver->sync_obj_unref(&sync_obj);
-	}
 	schedule_delayed_work(&bdev->wq,
 			      ((HZ / 100) < 1) ? 1 : HZ / 100);
 }
@@ -583,10 +557,10 @@ static int ttm_bo_delayed_delete(struct ttm_bo_device *bdev, bool remove_all)
 			kref_get(&nentry->list_kref);
 		}
 
-		ret = ttm_bo_reserve_locked(entry, false,
-					    !remove_all, false, 0);
-
 		spin_unlock(&glob->lru_lock);
+
+		ret = ttm_bo_reserve_nolru(entry, false,
+					   !remove_all, false, 0);
 		if (!ret)
 			ret = ttm_bo_cleanup_refs_reserved(entry, false,
 							   !remove_all);
@@ -739,7 +713,7 @@ retry:
 
 	ret = -EBUSY;
 	list_for_each_entry(bo, &man->lru, lru) {
-		ret = ttm_bo_reserve_locked(bo, false, true, false, 0);
+		ret = ttm_bo_reserve_nolru(bo, false, true, false, 0);
 		if (!ret) {
 			kref_get(&bo->list_kref);
 			if (list_empty(&bo->ddestroy))
@@ -761,12 +735,15 @@ retry:
 		bo = list_first_entry(&man->lru, struct ttm_buffer_object, lru);
 
 		kref_get(&bo->list_kref);
-		ret = ttm_bo_reserve_locked(bo, false, true, false, 0);
+		spin_unlock(&glob->lru_lock);
+
+		ret = ttm_bo_reserve_nolru(bo, false, false, false, 0);
+
 		if (WARN_ON(ret)) {
-			spin_unlock(&glob->lru_lock);
 			kref_put(&bo->list_kref, ttm_bo_release_list);
 			return ret;
 		}
+		spin_lock(&glob->lru_lock);
 	} else if (ret) {
 		spin_unlock(&glob->lru_lock);
 		return ret;
@@ -1161,9 +1138,7 @@ int ttm_bo_init(struct ttm_bo_device *bdev,
 		bo->resv = &bo->ttm_resv;
 		reservation_object_init(&bo->ttm_resv);
 	}
-	spin_lock(&bdev->glob->lru_lock);
-	ttm_bo_reserve_locked(bo, false, false, false, 0);
-	spin_unlock(&bdev->glob->lru_lock);
+	ttm_bo_reserve_nolru(bo, false, false, false, 0);
 	atomic_inc(&bo->glob->bo_count);
 
 	ret = ttm_bo_check_placement(bo, placement);
@@ -1704,7 +1679,7 @@ static int ttm_bo_swapout(struct ttm_mem_shrink *shrink)
 		 * we slept.
 		 */
 
-		ret = ttm_bo_reserve_locked(bo, false, true, false, 0);
+		ret = ttm_bo_reserve_nolru(bo, false, true, false, 0);
 		if (unlikely(ret == -EBUSY)) {
 			spin_unlock(&glob->lru_lock);
 			ttm_bo_wait_unreserved(bo, false);
