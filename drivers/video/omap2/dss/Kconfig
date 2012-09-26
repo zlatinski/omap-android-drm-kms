@@ -87,6 +87,20 @@ config OMAP5_DSS_HDMI
 	    HDMI Interface.This add the High Deinition Multimedia Interface.
 	    See http://wwww.hdmi.org/ for HDMI specification.
 
+config OMAP_HDMI_CEC
+	bool "OMAP HDMI CEC"
+	depends on OMAP5_DSS_HDMI || OMAP4_DSS_HDMI
+	default y
+	help
+	  Enable the HDMI CEC.
+
+config OMAP_HDMI_HDCP
+	bool "OMAP HDMI HDCP"
+	depends on OMAP5_DSS_HDMI
+	default y
+	help
+	  Enable the HDMI HDCP.
+
 config OMAP5_DSS_HDMI_AUDIO
 	bool
 	depends on OMAP5_DSS_HDMI
