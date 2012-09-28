@@ -21,91 +21,8 @@
 #include <linux/mm_types.h>
 #include <linux/mutex.h>
 #include <linux/rbtree.h>
+#include <linux/sched.h>
 #include <linux/ion.h>
-#include <linux/miscdevice.h>
-
-struct ion_mapping;
-
-struct ion_dma_mapping {
-	struct kref ref;
-	struct scatterlist *sglist;
-};
-
-struct ion_kernel_mapping {
-	struct kref ref;
-	void *vaddr;
-};
-
-/**
- * struct ion_device - the metadata of the ion device node
- * @dev:		the actual misc device
- * @buffers:	an rb tree of all the existing buffers
- * @lock:		lock protecting the buffers & heaps trees
- * @heaps:		list of all the heaps in the system
- * @user_clients:	list of all the clients created from userspace
- */
-struct ion_device {
-	struct miscdevice dev;
-	struct rb_root buffers;
-	struct mutex lock;
-	struct rb_root heaps;
-	long (*custom_ioctl) (struct ion_client *client, unsigned int cmd,
-			      unsigned long arg);
-	struct rb_root user_clients;
-	struct rb_root kernel_clients;
-	struct dentry *debug_root;
-};
-
-/**
- * struct ion_client - a process/hw block local address space
- * @ref:		for reference counting the client
- * @node:		node in the tree of all clients
- * @dev:		backpointer to ion device
- * @handles:		an rb tree of all the handles in this client
- * @lock:		lock protecting the tree of handles
- * @heap_mask:		mask of all supported heaps
- * @name:		used for debugging
- * @task:		used for debugging
- *
- * A client represents a list of buffers this client may access.
- * The mutex stored here is used to protect both handles tree
- * as well as the handles themselves, and should be held while modifying either.
- */
-struct ion_client {
-	struct kref ref;
-	struct rb_node node;
-	struct ion_device *dev;
-	struct rb_root handles;
-	struct mutex lock;
-	unsigned int heap_mask;
-	const char *name;
-	struct task_struct *task;
-	pid_t pid;
-	struct dentry *debug_root;
-};
-
-/**
- * ion_handle - a client local reference to a buffer
- * @ref:		reference count
- * @client:		back pointer to the client the buffer resides in
- * @buffer:		pointer to the buffer
- * @node:		node in the client's handle rbtree
- * @kmap_cnt:		count of times this client has mapped to kernel
- * @dmap_cnt:		count of times this client has mapped for dma
- * @usermap_cnt:	count of times this client has mapped for userspace
- *
- * Modifications to node, map_cnt or mapping should be protected by the
- * lock in the client.  Other fields are never changed after initialization.
- */
-struct ion_handle {
-	struct kref ref;
-	struct ion_client *client;
-	struct ion_buffer *buffer;
-	struct rb_node node;
-	unsigned int kmap_cnt;
-	unsigned int dmap_cnt;
-	unsigned int usermap_cnt;
-};
 
 struct ion_buffer *ion_handle_buffer(struct ion_handle *handle);
 
@@ -125,7 +42,16 @@ struct ion_buffer *ion_handle_buffer(struct ion_handle *handle);
  * @kmap_cnt:		number of times the buffer is mapped to the kernel
  * @vaddr:		the kenrel mapping if kmap_cnt is not zero
  * @dmap_cnt:		number of times the buffer is mapped for dma
- * @sglist:		the scatterlist for the buffer is dmap_cnt is not zero
+ * @sg_table:		the sg table for the buffer if dmap_cnt is not zero
+ * @dirty:		bitmask representing which pages of this buffer have
+ *			been dirtied by the cpu and need cache maintenance
+ *			before dma
+ * @vmas:		list of vma's mapping this buffer
+ * @handle_count:	count of handles referencing this buffer
+ * @task_comm:		taskcomm of last client to reference this buffer in a
+ *			handle, used for debugging
+ * @pid:		pid of last client to reference this buffer in a
+ *			handle, used for debugging
 */
 struct ion_buffer {
 	struct kref ref;
@@ -142,8 +68,13 @@ struct ion_buffer {
 	int kmap_cnt;
 	void *vaddr;
 	int dmap_cnt;
-	struct scatterlist *sglist;
-	bool cached;
+	struct sg_table *sg_table;
+	unsigned long *dirty;
+	struct list_head vmas;
+	/* used to track orphaned buffers */
+	int handle_count;
+	char task_comm[TASK_COMM_LEN];
+	pid_t pid;
 };
 
 /**
@@ -157,8 +88,6 @@ struct ion_buffer {
  * @map_kernel		map memory to the kernel
  * @unmap_kernel	unmap memory to the kernel
  * @map_user		map memory to userspace
- * @flush_user		flush memory if mapped as cacheable
- * @inval_user		invalidate memory if mapped as cacheable
  */
 struct ion_heap_ops {
 	int (*allocate) (struct ion_heap *heap,
@@ -167,17 +96,13 @@ struct ion_heap_ops {
 	void (*free) (struct ion_buffer *buffer);
 	int (*phys) (struct ion_heap *heap, struct ion_buffer *buffer,
 		     ion_phys_addr_t *addr, size_t *len);
-	struct scatterlist *(*map_dma) (struct ion_heap *heap,
+	struct sg_table *(*map_dma) (struct ion_heap *heap,
 					struct ion_buffer *buffer);
 	void (*unmap_dma) (struct ion_heap *heap, struct ion_buffer *buffer);
 	void * (*map_kernel) (struct ion_heap *heap, struct ion_buffer *buffer);
 	void (*unmap_kernel) (struct ion_heap *heap, struct ion_buffer *buffer);
 	int (*map_user) (struct ion_heap *mapper, struct ion_buffer *buffer,
 			 struct vm_area_struct *vma);
-	int (*flush_user) (struct ion_buffer *buffer, size_t len,
-			unsigned long vaddr);
-	int (*inval_user) (struct ion_buffer *buffer, size_t len,
-			unsigned long vaddr);
 };
 
 /**
@@ -204,6 +129,15 @@ struct ion_heap {
 	int id;
 	const char *name;
 };
+
+/**
+ * ion_buffer_fault_user_mappings - fault in user mappings of this buffer
+ * @buffer:		buffer
+ *
+ * indicates whether userspace mappings of this buffer will be faulted
+ * in, this can affect how buffers are allocated from the heap.
+ */
+bool ion_buffer_fault_user_mappings(struct ion_buffer *buffer);
 
 /**
  * ion_device_create - allocates and returns an ion device
@@ -259,18 +193,5 @@ void ion_carveout_free(struct ion_heap *heap, ion_phys_addr_t addr,
  * physical address, this is used to indicate allocation failed
  */
 #define ION_CARVEOUT_ALLOCATE_FAIL -1
-
-/**
- * Flushing entire cache is more efficient than flushing virtual address
- * range of a buffer whose size is 200Kbytes or higher, since line by
- * line operations of huge buffers consume lot of cpu cycles
- */
-#define FULL_CACHE_FLUSH_THRESHOLD 200000
-
-enum cache_operation {
-	CACHE_CLEAN		= 0x0,
-	CACHE_INVALIDATE	= 0x1,
-	CACHE_FLUSH		= 0x2,
-};
 
 #endif /* _ION_PRIV_H */

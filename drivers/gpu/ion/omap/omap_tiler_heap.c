@@ -32,6 +32,24 @@
 #include "omap_ion_priv.h"
 #include <asm/cacheflush.h>
 
+/* TODO: Remove all this cache operations -
+ *
+ *	 should be automatic on map
+ */
+
+/**
+ * Flushing entire cache is more efficient than flushing virtual address
+ * range of a buffer whose size is 200Kbytes or higher, since line by
+ * line operations of huge buffers consume lot of cpu cycles
+ */
+#define FULL_CACHE_FLUSH_THRESHOLD 200000
+
+enum cache_operation {
+	CACHE_CLEAN		= 0x0,
+	CACHE_INVALIDATE	= 0x1,
+	CACHE_FLUSH		= 0x2,
+};
+
 static int omap_tiler_heap_allocate(struct ion_heap *heap,
 				    struct ion_buffer *buffer,
 				    unsigned long size, unsigned long align,
@@ -174,7 +192,7 @@ int omap_tiler_alloc(struct ion_heap *heap,
 	data->stride = info->vstride;
 
 	/* create an ion handle  for the allocation */
-	handle = ion_alloc(client, 0, 0, 1 << OMAP_ION_HEAP_TILER);
+	handle = ion_alloc(client, 0, 0, 1 << OMAP_ION_HEAP_TILER, 0);
 	if (IS_ERR_OR_NULL(handle)) {
 		ret = PTR_ERR(handle);
 		pr_err("%s: failure to allocate handle to manage "
@@ -292,7 +310,7 @@ static int omap_tiler_heap_map_user(struct ion_heap *heap,
 		ret = remap_pfn_range(vma, addr,
 				 __phys_to_pfn(info->tiler_addrs[0]),
 				(vma->vm_end - vma->vm_start),
-				(buffer->cached ?
+				((buffer->flags & ION_FLAG_CACHED) ?
 				(vma->vm_page_prot)
 				: vm_page_prot));
 	} else {
@@ -323,7 +341,7 @@ static int omap_tiler_cache_operation(struct ion_buffer *buffer, size_t len,
 		pr_err("%s(): buffer is NULL\n", __func__);
 		return -EINVAL;
 	}
-	if (!buffer->cached) {
+	if (!(buffer->flags & ION_FLAG_CACHED)) {
 		pr_err("%s(): buffer not mapped as cacheable\n", __func__);
 		return -EINVAL;
 	}
@@ -380,8 +398,6 @@ static struct ion_heap_ops omap_tiler_ops = {
 	.free = omap_tiler_heap_free,
 	.phys = omap_tiler_phys,
 	.map_user = omap_tiler_heap_map_user,
-	.flush_user = omap_tiler_heap_flush_user,
-	.inval_user = omap_tiler_heap_inval_user,
 };
 
 struct ion_heap *omap_tiler_heap_create(struct ion_platform_heap *data)
