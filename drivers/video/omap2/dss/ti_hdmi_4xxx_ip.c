@@ -808,7 +808,7 @@ void hdmi_wp_video_init_format(struct hdmi_video_format *video_fmt,
 	if (param->timings.vmode & FB_VMODE_INTERLACED)
 		video_fmt->y_res /= 2;
 	video_fmt->x_res = param->timings.xres;
-	omapfb_fb2dss_timings(&param->timings, timings);
+	omapdss_fb2dss_timings(&param->timings, timings);
 }
 
 void hdmi_wp_video_config_format(struct hdmi_ip_data *ip_data,

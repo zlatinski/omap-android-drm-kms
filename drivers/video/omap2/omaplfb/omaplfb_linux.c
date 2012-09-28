@@ -1198,3 +1198,7 @@ static void __exit OMAPLFB_Cleanup(void)
 late_initcall(OMAPLFB_Init);
 module_exit(OMAPLFB_Cleanup);
 #endif
+
+MODULE_AUTHOR("IMG & Texas Instruments, Inc.");
+MODULE_DESCRIPTION("SGX OMAPLFB Dispaly Interface");
+MODULE_LICENSE("GPL and additional rights");

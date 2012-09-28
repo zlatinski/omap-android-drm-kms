@@ -279,6 +279,7 @@ void dss_dump_clocks(struct seq_file *s)
 
 	dss_runtime_put();
 }
+EXPORT_SYMBOL_GPL(dss_dump_clocks);
 
 void dss_dump_regs(struct seq_file *s)
 {
@@ -302,6 +303,7 @@ void dss_dump_regs(struct seq_file *s)
 	dss_runtime_put();
 #undef DUMPREG
 }
+EXPORT_SYMBOL_GPL(dss_dump_regs);
 
 void dss_select_dispc_clk_source(enum omap_dss_clk_source clk_src)
 {

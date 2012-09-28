@@ -420,7 +420,7 @@ static const struct venc_config *venc_timings_to_config(
 static int venc_power_on(struct omap_dss_device *dssdev)
 {
 	u32 l;
-	int r;
+	int r = 0;
 
 	venc_reset();
 	venc_write_config(venc_timings_to_config(&dssdev->panel.timings));
@@ -440,7 +440,7 @@ static int venc_power_on(struct omap_dss_device *dssdev)
 
 	venc_write_reg(VENC_OUTPUT_CONTROL, l);
 
-	dispc_set_digit_size(dssdev->panel.timings.x_res,
+	dispc_mgr_set_size(dssdev->manager_id, dssdev->panel.timings.x_res,
 			dssdev->panel.timings.y_res/2);
 
 	regulator_enable(venc.vdda_dac_reg);
@@ -448,9 +448,11 @@ static int venc_power_on(struct omap_dss_device *dssdev)
 	if (dssdev->platform_enable)
 		dssdev->platform_enable(dssdev);
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	r = dss_mgr_enable(dssdev->manager);
 	if (r)
 		goto err;
+
 
 	return 0;
 
@@ -462,6 +464,7 @@ err:
 		dssdev->platform_disable(dssdev);
 
 	regulator_disable(venc.vdda_dac_reg);
+#endif //CONFIG_OMAP2_DSS_HL
 
 	return r;
 }
@@ -471,7 +474,9 @@ static void venc_power_off(struct omap_dss_device *dssdev)
 	venc_write_reg(VENC_OUTPUT_CONTROL, 0);
 	dss_set_dac_pwrdn_bgz(0);
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_mgr_disable(dssdev->manager);
+#endif // CONFIG_OMAP2_DSS_HL
 
 	if (dssdev->platform_disable)
 		dssdev->platform_disable(dssdev);

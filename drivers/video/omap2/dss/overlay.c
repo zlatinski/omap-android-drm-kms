@@ -23,7 +23,7 @@
 #define DSS_SUBSYS_NAME "OVERLAY"
 
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/err.h>
 #include <linux/sysfs.h>
 #include <linux/kobject.h>
@@ -690,6 +690,7 @@ void dss_recheck_connections(struct omap_dss_device *dssdev, bool force)
 		dispc_runtime_put();
 	}
 }
+EXPORT_SYMBOL(dss_recheck_connections);
 
 void dss_uninit_overlays(struct platform_device *pdev)
 {
@@ -706,6 +707,7 @@ void dss_uninit_overlays(struct platform_device *pdev)
 	overlays = NULL;
 	num_overlays = 0;
 }
+EXPORT_SYMBOL(dss_uninit_overlays);
 
 int dss_ovl_simple_check(struct omap_overlay *ovl,
 		const struct omap_overlay_info *info)

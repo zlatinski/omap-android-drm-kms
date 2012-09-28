@@ -593,7 +593,7 @@ config KEYBOARD_W90P910
 
 config KEYBOARD_CEC
 	tristate "CEC keyboard support"
-	depends on ARCH_OMAP4 || ARCH_OMAP5 || OMAP4_DSS_HDMI
+	depends on OMAP_HDMI_CEC
 	default n
 	help
 	  Say Y here if your board suppots CEC keyboard

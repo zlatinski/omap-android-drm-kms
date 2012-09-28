@@ -1,4 +1,4 @@
-obj-$(CONFIG_OMAPLFB) := omaplfb.o
+obj-$(CONFIG_SGX_OMAPLFB) := omaplfb.o
 
 ccflags-y += \
 	-I$(KERNELDIR)/drivers/video/omap2 \

@@ -103,6 +103,7 @@ int hdmi_runtime_get(void)
 
 	return 0;
 }
+EXPORT_SYMBOL(hdmi_runtime_get);
 
 void hdmi_runtime_put(void)
 {
@@ -111,8 +112,9 @@ void hdmi_runtime_put(void)
 	DSSDBG("hdmi_runtime_put\n");
 
 	r = pm_runtime_put_sync(&hdmi.pdev->dev);
-	WARN_ON(r < 0);
+	WARN_ON(r < 0 && r != -ENOSYS);
 }
+EXPORT_SYMBOL(hdmi_runtime_put);
 
 int hdmi_init_display(struct omap_dss_device *dssdev)
 {
@@ -302,6 +304,7 @@ u8 *hdmi_read_valid_edid(void)
 		return NULL;
 	}
 	hdmi.edid_set = true;
+
 	return hdmi.edid;
 }
 
@@ -399,7 +402,9 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 			goto err;
 	}
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_mgr_disable(dssdev->manager);
+#endif //CONFIG_OMAP2_DSS_HL
 
 	p = &dssdev->panel.timings;
 
@@ -424,7 +429,7 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 		}
 	}
 
-	omapfb_fb2dss_timings(&hdmi.ip_data.cfg.timings,
+	omapdss_fb2dss_timings(&hdmi.ip_data.cfg.timings,
 					&dssdev->panel.timings);
 
 	switch (hdmi.ip_data.cfg.deep_color) {
@@ -483,25 +488,31 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 	dispc_enable_gamma_table(0);
 
 	/* tv size */
-	dispc_set_digit_size(dssdev->panel.timings.x_res,
+#ifdef CONFIG_OMAP2_DSS_HL
+	dispc_mgr_set_size(dssdev->manager_id, dssdev->panel.timings.x_res,
 			dssdev->panel.timings.y_res);
+#endif //CONFIG_OMAP2_DSS_HL
 
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 1);
 
 	if (hdmi.hdcp && hdmi.hdmi_start_frame_cb)
 		(*hdmi.hdmi_start_frame_cb)();
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	r = dss_mgr_enable(dssdev->manager);
 	if (r)
 		goto err_mgr_enable;
+#endif //CONFIG_OMAP2_DSS_HL
 
 	return 0;
 
+#ifdef CONFIG_OMAP2_DSS_HL
 err_mgr_enable:
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 0);
 	hdmi.ip_data.set_mode = false;
 	hdmi.ip_data.ops->phy_disable(&hdmi.ip_data);
 	hdmi.ip_data.ops->pll_disable(&hdmi.ip_data);
+#endif // CONFIG_OMAP2_DSS_HL
 err:
 	hdmi_runtime_put();
 	return -EIO;
@@ -509,7 +520,9 @@ err:
 
 static void hdmi_power_off(struct omap_dss_device *dssdev)
 {
+#ifdef CONFIG_OMAP2_DSS_HL
 	dss_mgr_disable(dssdev->manager);
+#endif // CONFIG_OMAP2_DSS_HL
 
 	hdmi.ip_data.ops->hdcp_disable(&hdmi.ip_data);
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 0);
@@ -620,12 +633,28 @@ int omapdss_hdmi_unregister_cec_callbacks(void)
 	return 0;
 }
 
+static void omapdss_dss2fb_timings(struct omap_video_timings *dss_timings,
+                        struct fb_videomode *fb_timings)
+{
+        memset(fb_timings, 0, sizeof(*fb_timings));
+        fb_timings->xres = dss_timings->x_res;
+        fb_timings->yres = dss_timings->y_res;
+        fb_timings->pixclock = dss_timings->pixel_clock ?
+                                        KHZ2PICOS(dss_timings->pixel_clock) : 0;
+        fb_timings->right_margin = dss_timings->hfp;
+        fb_timings->left_margin = dss_timings->hbp;
+        fb_timings->hsync_len = dss_timings->hsw;
+        fb_timings->lower_margin = dss_timings->vfp;
+        fb_timings->upper_margin = dss_timings->vbp;
+        fb_timings->vsync_len = dss_timings->vsw;
+}
+
 int omapdss_hdmi_display_check_timing(struct omap_dss_device *dssdev,
 					struct omap_video_timings *timings)
 {
 	struct fb_videomode t;
 
-	omapfb_dss2fb_timings(timings, &t);
+	omapdss_dss2fb_timings(timings, &t);
 
 	/* also check interlaced timings */
 	if (!hdmi_set_timings(&t, true)) {
@@ -693,7 +722,7 @@ int omapdss_hdmi_display_3d_enable(struct omap_dss_device *dssdev,
 
 	mutex_lock(&hdmi.lock);
 
-	if (dssdev->manager == NULL) {
+	if (dssdev->manager_id == OMAP_DSS_CHANNEL_INVALID) {
 		DSSERR("failed to enable display: no manager\n");
 		r = -ENODEV;
 		goto err0;
@@ -775,7 +804,7 @@ err0:
 void omapdss_hdmi_display_set_timing(struct omap_dss_device *dssdev)
 {
 	struct fb_videomode t;
-	omapfb_dss2fb_timings(&dssdev->panel.timings, &t);
+	omapdss_dss2fb_timings(&dssdev->panel.timings, &t);
 	/* also check interlaced timings */
 	if (!hdmi_set_timings(&t, true)) {
 		t.yres *= 2;
@@ -800,6 +829,7 @@ void hdmi_dump_regs(struct seq_file *s)
 	hdmi_runtime_put();
 	mutex_unlock(&hdmi.lock);
 }
+EXPORT_SYMBOL(hdmi_dump_regs);
 
 int omapdss_hdmi_read_edid(u8 *buf, int len)
 {
@@ -988,11 +1018,13 @@ int omapdss_hdmi_display_enable(struct omap_dss_device *dssdev)
 
 	mutex_lock(&hdmi.lock);
 
+#ifdef CONFIG_OMAP2_DSS_HL
 	if (dssdev->manager == NULL) {
 		DSSERR("failed to enable display: no manager\n");
 		r = -ENODEV;
 		goto err0;
 	}
+#endif
 
 	hdmi.ip_data.hpd_gpio = priv->hpd_gpio;
 

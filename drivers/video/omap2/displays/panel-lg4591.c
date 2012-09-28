@@ -687,3 +687,7 @@ static void __exit lg4591_exit(void)
 
 module_init(lg4591_init);
 module_exit(lg4591_exit);
+
+MODULE_AUTHOR("Texas Instruments, Inc.");
+MODULE_DESCRIPTION("LG-4591 panel support");
+MODULE_LICENSE("GPL and additional rights");

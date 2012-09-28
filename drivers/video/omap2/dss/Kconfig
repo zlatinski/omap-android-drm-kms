@@ -6,6 +6,13 @@ menuconfig OMAP2_DSS
 
 if OMAP2_DSS
 
+config OMAP2_DSS_HL
+	bool "Enable High-Level Mgr Support for DSSCOMP"
+	default y
+	help
+	  Enable high-level omapdss interface.  Clients of omapdss should
+	  select this if required.
+
 config OMAP2_VRAM_SIZE
 	int "VRAM size (MB)"
 	range 0 32
@@ -63,9 +70,6 @@ config OMAP2_DSS_VENC
 config OMAP4_DSS_HDMI
 	bool "HDMI support"
 	depends on ARCH_OMAP4 || ANDROID_SWITCH
-	select FB
-	select FB_MODE_HELPERS
-	select FB_OMAP2
         default y
 	help
 	  HDMI Interface. This adds the High Definition Multimedia Interface.
@@ -78,13 +82,24 @@ config OMAP4_DSS_HDMI_AUDIO
 config OMAP5_DSS_HDMI
 	bool "OMAP5 HDMI support"
 	depends on ARCH_OMAP5 || ANDROID_SWITCH
-	select FB
-	select FB_MODE_HELPERS
-	select FB_OMAP2
 	default y
 	help
 	    HDMI Interface.This add the High Deinition Multimedia Interface.
 	    See http://wwww.hdmi.org/ for HDMI specification.
+
+config OMAP_HDMI_CEC
+	bool "OMAP HDMI CEC"
+	depends on OMAP5_DSS_HDMI || OMAP4_DSS_HDMI
+	default y
+	help
+	  Enable the HDMI CEC.
+
+config OMAP_HDMI_HDCP
+	bool "OMAP HDMI HDCP"
+	depends on OMAP5_DSS_HDMI
+	default y
+	help
+	  Enable the HDMI HDCP.
 
 config OMAP5_DSS_HDMI_AUDIO
 	bool

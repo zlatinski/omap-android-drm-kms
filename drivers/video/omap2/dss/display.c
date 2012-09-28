@@ -31,6 +31,7 @@
 #include "dss.h"
 #include "dss_features.h"
 
+#ifdef CONFIG_OMAP2_DSS_HL
 static ssize_t display_enabled_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -345,6 +346,7 @@ static struct device_attribute *display_sysfs_attrs[] = {
 	&dev_attr_s3d_type,
 	NULL
 };
+#endif //CONFIG_OMAP2_DSS_HL
 
 void omapdss_default_get_resolution(struct omap_dss_device *dssdev,
 			u16 *xres, u16 *yres)
@@ -365,6 +367,7 @@ void omapdss_display_get_dimensions(struct omap_dss_device *dssdev,
 		*height_in_um = dssdev->panel.height_in_um;
 	}
 }
+EXPORT_SYMBOL(omapdss_display_get_dimensions);
 
 int omapdss_default_get_recommended_bpp(struct omap_dss_device *dssdev)
 {
@@ -435,6 +438,7 @@ bool dss_use_replication(struct omap_dss_device *dssdev,
 void dss_init_device(struct platform_device *pdev,
 		struct omap_dss_device *dssdev)
 {
+#ifdef CONFIG_OMAP2_DSS_HL
 	struct device_attribute *attr;
 	int i;
 	int r;
@@ -494,11 +498,22 @@ void dss_init_device(struct platform_device *pdev,
 			dev_name(&dssdev->dev));
 	if (r)
 		DSSERR("failed to create sysfs display link\n");
+#else
+	if(dssdev->type == OMAP_DISPLAY_TYPE_HDMI)
+	{
+		int ret = hdmi_init_display(dssdev);
+		if (ret) {
+			DSSERR("failed to init HDMI display %s\n", dssdev->name);
+			return;
+		}
+	}
+#endif //CONFIG_OMAP2_DSS_HL
 }
 
 void dss_uninit_device(struct platform_device *pdev,
 		struct omap_dss_device *dssdev)
 {
+#ifdef CONFIG_OMAP2_DSS_HL
 	struct device_attribute *attr;
 	int i = 0;
 
@@ -509,6 +524,7 @@ void dss_uninit_device(struct platform_device *pdev,
 
 	if (dssdev->manager)
 		dssdev->manager->unset_device(dssdev->manager);
+#endif //CONFIG_OMAP2_DSS_HL
 }
 
 static int dss_suspend_device(struct device *dev, void *data)
