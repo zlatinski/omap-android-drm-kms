@@ -698,7 +698,7 @@ static inline struct dma_buf *drm_gem_get_dmabuf(struct drm_gem_object *obj)
 {
 	if (obj->import_attach)
 		return obj->import_attach->dmabuf;
-	return obj->export_dma_buf;
+	return obj->dma_buf;
 }
 
 #include "drm_crtc.h"
